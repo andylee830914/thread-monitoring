@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thread Topology</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: Canvas;
+      --fg: CanvasText;
+      --muted: color-mix(in srgb, CanvasText 62%, Canvas);
+      --border: color-mix(in srgb, CanvasText 18%, Canvas);
+      --card: color-mix(in srgb, Canvas 92%, CanvasText);
+      --router: #3b82f6;
+      --leader: #22c55e;
+      --child: #f59e0b;
+      --lq3: #22c55e;
+      --lq2: #f59e0b;
+      --lq1: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 18px;
+    }
+    header {
+      align-items: end;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    h1 { font-size: 20px; font-weight: 600; margin: 0; }
+    .muted { color: var(--muted); }
+    .stats {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      margin-bottom: 12px;
+    }
+    .stat {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .label { color: var(--muted); font-size: 12px; }
+    .value { font-size: 18px; font-weight: 600; margin-top: 2px; }
+    .legend {
+      align-items: center;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 14px;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .legend span { align-items: center; display: inline-flex; gap: 6px; }
+    .swatch { border-radius: 999px; display: inline-block; height: 10px; width: 24px; }
+    .toolbar {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .segmented {
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: inline-flex;
+      overflow: hidden;
+    }
+    .segmented button {
+      background: transparent;
+      border: 0;
+      color: var(--fg);
+      cursor: pointer;
+      font: inherit;
+      padding: 7px 10px;
+    }
+    .segmented button.active {
+      background: var(--router);
+      color: white;
+    }
+    .graph {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      min-height: 720px;
+      overflow: hidden;
+    }
+    svg { display: block; height: 720px; width: 100%; }
+    .band-line { stroke: var(--border); stroke-width: 1; }
+    .band-label, .edge-label, .sub { fill: var(--muted); font-size: 12px; }
+    .mesh-edge, .child-edge, .direction-edge { fill: none; stroke-linecap: round; }
+    .child-edge { stroke-dasharray: 3 3; }
+    .direction-edge {
+      animation: flow 1.1s linear infinite;
+      opacity: 0.95;
+      pointer-events: none;
+      stroke-dasharray: 8 7;
+    }
+    @keyframes flow {
+      to { stroke-dashoffset: -30; }
+    }
+    .router-node, .child-node, .mesh-edge, .child-edge { cursor: pointer; }
+    .router-node circle, .child-node circle { stroke: var(--bg); stroke-width: 2px; }
+    .router-node text, .child-node text { fill: var(--fg); pointer-events: none; }
+    .main { font-weight: 600; }
+    .name-label { fill: var(--fg); font-size: 11px; font-weight: 600; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+    .br-badge rect { fill: var(--child); opacity: 0.92; stroke: var(--bg); stroke-width: 1.5px; }
+    .br-badge text { fill: var(--fg); font-size: 9px; font-weight: 600; }
+    .dim { opacity: 0.16; }
+    .signal-table {
+      border-collapse: collapse;
+      margin-top: 8px;
+      width: 100%;
+    }
+    .signal-table th, .signal-table td {
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      padding: 5px 6px;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .signal-table th { color: var(--muted); font-weight: 600; }
+    .signal-table .num { text-align: right; }
+    .detail {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-top: 10px;
+      min-height: 44px;
+      padding: 10px 12px;
+    }
+    @media (max-width: 760px) {
+      body { padding: 10px; }
+      .stats { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .graph { min-height: 640px; }
+      svg { height: 640px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Thread Topology</h1>
+      <div class="muted" id="subtitle">Loading latest scan...</div>
+    </div>
+    <div class="muted">auto refresh: 30s</div>
+  </header>
+  <section class="stats">
+    <div class="stat"><div class="label">Probe</div><div class="value" id="probe">-</div></div>
+    <div class="stat"><div class="label">Routers</div><div class="value" id="routers">-</div></div>
+    <div class="stat"><div class="label">Children</div><div class="value" id="children">-</div></div>
+    <div class="stat"><div class="label">Pending</div><div class="value" id="pending">-</div></div>
+    <div class="stat"><div class="label">Links</div><div class="value" id="links">-</div></div>
+  </section>
+  <div class="toolbar">
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--lq3)"></i>LQ 3</span>
+      <span><i class="swatch" style="background:var(--lq2)"></i>LQ 2</span>
+      <span><i class="swatch" style="background:var(--lq1)"></i>LQ 0-1</span>
+      <span><i class="swatch" style="background:var(--child)"></i>Child / BR</span>
+    </div>
+    <div class="segmented" aria-label="layout mode">
+      <button type="button" class="active" data-layout="location">Location</button>
+      <button type="button" data-layout="signal">Signal</button>
+    </div>
+  </div>
+  <main class="graph"><svg aria-label="Thread topology"></svg></main>
+  <div class="detail" id="detail">Select a router, child, or link.</div>
+  <script>
+    const svg = d3.select("svg");
+    const detail = document.getElementById("detail");
+    const color = (lq) => lq >= 3 ? "var(--lq3)" : lq === 2 ? "var(--lq2)" : "var(--lq1)";
+    const numOrNull = (value) => value == null || value === "" || !Number.isFinite(Number(value)) ? null : Number(value);
+    const fmt = (value, suffix = "") => value == null ? "-" : `${value}${suffix}`;
+    const esc = (value) => String(value ?? "-").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+    const reportSeverity = (report) => {
+      if (!report) return 0;
+      const linkMargin = report.linkMargin;
+      const averageRssi = report.averageRssi;
+      const linkQuality = report.linkQuality;
+      if ((linkMargin != null && linkMargin > 0 && linkMargin <= 12) || (averageRssi != null && averageRssi <= -100)) return 3;
+      if (linkQuality != null && linkQuality <= 1 && linkMargin != null && linkMargin >= 20) return 2;
+      if ((linkMargin != null && linkMargin > 0 && linkMargin <= 20) || (averageRssi != null && averageRssi <= -95) || (linkQuality != null && linkQuality <= 1)) return 1;
+      return 0;
+    };
+    const severityColor = (severity) => severity >= 3 ? "var(--lq1)" : severity === 2 ? "var(--lq2)" : "var(--lq3)";
+    const severityLabel = (severity) => severity >= 3 ? "Weak" : severity === 2 ? "LQ mismatch" : severity === 1 ? "Watch" : "OK";
+    const linkQualityFromMargin = (margin) => {
+      if (margin == null) return null;
+      if (margin > 20) return 3;
+      if (margin > 10) return 2;
+      if (margin > 2) return 1;
+      return 0;
+    };
+    const costForLinkQuality = (quality) => {
+      if (quality == null) return null;
+      if (quality >= 3) return 1;
+      if (quality === 2) return 2;
+      if (quality === 1) return 4;
+      return null;
+    };
+    const effectiveLinkQuality = (report) => report.linkQuality ?? linkQualityFromMargin(report.linkMargin);
+    const routerSignalLabel = (router) => router.dataIncomplete ? "Data Incomplete" : router.signalStatus;
+    let layoutMode = "location";
+    let latestBody = null;
+
+    document.querySelectorAll("[data-layout]").forEach((button) => {
+      button.addEventListener("click", () => {
+        layoutMode = button.dataset.layout;
+        document.querySelectorAll("[data-layout]").forEach((item) => item.classList.toggle("active", item === button));
+        if (latestBody) draw(latestBody.payload, latestBody.last_success, latestBody.error, latestBody.device_map || {}, latestBody.expected_child_count);
+      });
+    });
+
+    async function load() {
+      const response = await fetch("/topology.json", { cache: "no-store" });
+      const body = await response.json();
+      if (!body.payload || !body.payload.routers) {
+        document.getElementById("probe").textContent = "down";
+        document.getElementById("subtitle").textContent = body.error || "No scan data yet";
+        return;
+      }
+      latestBody = body;
+      draw(body.payload, body.last_success, body.error, body.device_map || {}, body.expected_child_count);
+    }
+
+    function draw(raw, lastSuccess, error, deviceMap, expectedChildCount) {
+      svg.selectAll("*").remove();
+      const mapKey = (rloc16) => String(rloc16 || "").toLowerCase();
+      const deviceInfo = (extAddress) => deviceMap[mapKey(extAddress)] || null;
+      const deviceName = (extAddress, fallback) => {
+        const info = deviceInfo(extAddress);
+        return info && info.name ? info.name : fallback;
+      };
+      const compactName = (name) => {
+        const cleaned = String(name || "").replace(/\\b(Thread|Router|Sensor|Controller)\\b/g, "").replace(/\\s+/g, " ").trim();
+        const firstWords = cleaned.split(" ").slice(0, 2).join(" ") || name;
+        return firstWords.length > 13 ? `${firstWords.slice(0, 12)}…` : firstWords;
+      };
+      const routers = raw.routers.map((router) => ({
+        id: router.router_id,
+        rloc16: router.rloc16,
+        extAddress: router.ext_address,
+        name: deviceName(router.ext_address || router.rloc16, `Router ${router.router_id}`),
+        info: deviceInfo(router.ext_address || router.rloc16),
+        status: router.status,
+        leader: Boolean(router.leader),
+        borderRouter: Boolean(router.border_router),
+        childTableStatus: router.child_table_status || "unknown",
+        routerNeighborTableStatus: router.router_neighbor_table_status || "unknown",
+        children: router.children || [],
+        childCount: router.child_count || 0,
+        neighbors: router.router_neighbors || []
+      }));
+      for (const router of routers) {
+        const counts = { lq1: 0, lq2: 0, lq3: 0, missing: 0 };
+        for (const neighbor of router.neighbors) {
+          const quality = numOrNull(neighbor.link_quality);
+          if (quality == null) {
+            counts.missing += 1;
+            continue;
+          }
+          if (quality >= 3) counts.lq3 += 1;
+          else if (quality === 2) counts.lq2 += 1;
+          else counts.lq1 += 1;
+        }
+        router.counts = counts;
+      }
+      const routerById = new Map(routers.map((router) => [router.id, router]));
+      const edgeByKey = new Map();
+      for (const router of routers) {
+        for (const neighbor of router.neighbors) {
+          if (!routerById.has(neighbor.router_id)) continue;
+          const a = Math.min(router.id, neighbor.router_id);
+          const b = Math.max(router.id, neighbor.router_id);
+          const key = `${a}-${b}`;
+          const report = {
+            from: router.id,
+            to: neighbor.router_id,
+            linkQuality: numOrNull(neighbor.link_quality),
+            linkMargin: numOrNull(neighbor.link_margin),
+            averageRssi: numOrNull(neighbor.average_rssi),
+            lastRssi: numOrNull(neighbor.last_rssi),
+            frameErrorRate: numOrNull(neighbor.frame_error_rate),
+            messageErrorRate: numOrNull(neighbor.message_error_rate)
+          };
+          if (!edgeByKey.has(key)) edgeByKey.set(key, { source: a, target: b, reports: [] });
+          edgeByKey.get(key).reports.push(report);
+        }
+      }
+      const meshLinks = Array.from(edgeByKey.values()).map((link) => {
+        const lqs = link.reports.map((report) => report.linkQuality).filter((value) => value != null);
+        const margins = link.reports.map((report) => report.linkMargin).filter((value) => value != null);
+        const diagnosticReports = link.reports.filter((report) => report.linkQuality != null || report.linkMargin != null || report.averageRssi != null);
+        const effectiveLqs = link.reports.map(effectiveLinkQuality).filter((value) => value != null);
+        const worstReport = (diagnosticReports.length ? diagnosticReports : link.reports)
+          .slice()
+          .sort((a, b) => reportSeverity(b) - reportSeverity(a) || (a.linkMargin ?? 999) - (b.linkMargin ?? 999) || (a.linkQuality ?? 999) - (b.linkQuality ?? 999))[0];
+        const twoWayLq = effectiveLqs.length >= 2 ? Math.min(...effectiveLqs) : (effectiveLqs.length === 1 ? effectiveLqs[0] : null);
+        const routeCost = costForLinkQuality(twoWayLq);
+        const minMargin = margins.length ? Math.min(...margins) : null;
+        return {
+          ...link,
+          source: routerById.get(link.source),
+          target: routerById.get(link.target),
+          bestLq: lqs.length ? Math.max(...lqs) : null,
+          bestMargin: margins.length ? Math.max(...margins) : null,
+          twoWayLq,
+          routeCost,
+          reliable: routeCost != null && routeCost <= 2 && (minMargin == null || minMargin >= 10),
+          worstReport,
+          severity: reportSeverity(worstReport)
+        };
+      });
+      const adjacency = new Map(routers.map((router) => [router.id, []]));
+      for (const edge of meshLinks) {
+        if (edge.routeCost == null) continue;
+        adjacency.get(edge.source.id)?.push({ to: edge.target.id, cost: edge.routeCost });
+        adjacency.get(edge.target.id)?.push({ to: edge.source.id, cost: edge.routeCost });
+      }
+      function shortestPathsFrom(startId) {
+        const distances = new Map(routers.map((router) => [router.id, Infinity]));
+        if (startId == null || !distances.has(startId)) return distances;
+        distances.set(startId, 0);
+        const queue = [{ id: startId, cost: 0 }];
+        while (queue.length) {
+          queue.sort((a, b) => a.cost - b.cost);
+          const current = queue.shift();
+          if (current.cost !== distances.get(current.id)) continue;
+          for (const next of adjacency.get(current.id) || []) {
+            const cost = current.cost + next.cost;
+            if (cost < distances.get(next.to)) {
+              distances.set(next.to, cost);
+              queue.push({ id: next.to, cost });
+            }
+          }
+        }
+        return distances;
+      }
+      const leaderRouter = routers.find((router) => router.leader && router.status === "ok") || routers[0];
+      const leaderCosts = shortestPathsFrom(leaderRouter && leaderRouter.id);
+      for (const router of routers) {
+        const incident = meshLinks.filter((edge) => edge.source.id === router.id || edge.target.id === router.id);
+        const weakEdges = incident.filter((edge) => edge.severity >= 3).length;
+        router.reliableNeighborCount = incident.filter((edge) => edge.reliable).length;
+        router.weakEdgeRatio = incident.length ? weakEdges / incident.length : 1;
+        router.leaderRouteCost = leaderCosts.get(router.id);
+        router.dataIncomplete = router.childTableStatus !== "ok" || router.routerNeighborTableStatus !== "ok";
+        if (router.dataIncomplete) {
+          router.signalStatus = "Data Incomplete";
+          router.signalSeverity = 3;
+        } else if (router.reliableNeighborCount === 0 || !Number.isFinite(router.leaderRouteCost)) {
+          router.signalStatus = "Weak";
+          router.signalSeverity = 3;
+        } else if (router.reliableNeighborCount === 1 || router.leaderRouteCost > 4 || router.weakEdgeRatio > 0.5) {
+          router.signalStatus = "Watch";
+          router.signalSeverity = 1;
+        } else {
+          router.signalStatus = "OK";
+          router.signalSeverity = 0;
+        }
+      }
+      const childNodes = routers.flatMap((router) => router.children.map((child, index) => ({
+        id: child.ext_address || `${router.id}-${child.rloc16}`,
+        childId: child.child_id,
+        rloc16: child.rloc16,
+        extAddress: child.ext_address,
+        name: deviceName(child.ext_address || child.rloc16, `Child ${child.child_id}`),
+        info: deviceInfo(child.ext_address || child.rloc16),
+        timeout: child.timeout,
+        linkQuality: numOrNull(child.link_quality),
+        linkMargin: numOrNull(child.link_margin),
+        averageRssi: numOrNull(child.average_rssi),
+        lastRssi: numOrNull(child.last_rssi),
+        queuedMessages: numOrNull(child.queued_message_count),
+        mode: child.mode || {},
+        parent: router,
+        index
+      })));
+      const leader = leaderRouter;
+
+      document.getElementById("probe").textContent = error ? "degraded" : "up";
+      document.getElementById("routers").textContent = routers.length;
+      document.getElementById("children").textContent = expectedChildCount ? `${childNodes.length}/${expectedChildCount}` : childNodes.length;
+      document.getElementById("pending").textContent = raw.pending_total ?? raw.pending ?? 0;
+      document.getElementById("links").textContent = meshLinks.length;
+      const scanAge = raw.scan_age_ms != null ? `${(raw.scan_age_ms / 1000).toFixed(raw.scan_age_ms >= 10000 ? 0 : 1)}s old` : "age unknown";
+      document.getElementById("subtitle").textContent = `scan ${raw.scan_id ?? "-"} · ${scanAge} · ${lastSuccess ? new Date(lastSuccess * 1000).toLocaleString() : "waiting"}`;
+
+      const box = svg.node().getBoundingClientRect();
+      const width = Math.max(720, box.width || 720);
+      const height = box.height || 720;
+      const margin = { top: 48, right: 34, bottom: 64, left: 34 };
+      svg.attr("viewBox", `0 0 ${width} ${height}`);
+
+      const locationOrder = ["1F", "2F", "3F", "4F"];
+      const signalOrder = ["Data Incomplete", "Weak", "Watch", "OK"];
+      const bandValues = layoutMode === "location" ? locationOrder : signalOrder;
+      const bandGap = (height - margin.top - margin.bottom) / bandValues.length;
+      const bandLabels = layoutMode === "location"
+        ? new Map(locationOrder.map((item) => [item, item]))
+        : new Map(signalOrder.map((item) => [item, item]));
+      const bandIndex = new Map(bandValues.map((item, index) => [item, index]));
+      const routerRole = (router) => router.leader ? "Leader" : (router.borderRouter ? "Border Router" : "Router");
+      const groupKey = (router) => {
+        if (layoutMode === "location") return (router.info && router.info.location) || "Unknown";
+        return routerSignalLabel(router);
+      };
+      const groups = d3.group(routers, groupKey);
+      for (const [groupValue, group] of groups) {
+        const sorted = group.sort((a, b) => a.id - b.id);
+        const idx = bandIndex.has(groupValue) ? bandIndex.get(groupValue) : bandValues.length - 1;
+        const y = margin.top + idx * bandGap;
+        sorted.forEach((router, index) => {
+          router.x = margin.left + ((index + 1) * (width - margin.left - margin.right)) / (sorted.length + 1);
+          router.y = y;
+        });
+      }
+      if (layoutMode === "location") {
+        // In location mode, distribute children across their own floor level, below routers
+        const childGroups = d3.group(childNodes, (child) => (child.info && child.info.location) || "Unknown");
+        for (const [groupValue, group] of childGroups) {
+          const idx = bandIndex.has(groupValue) ? bandIndex.get(groupValue) : bandValues.length - 1;
+          const y = margin.top + idx * bandGap + 62;
+          const sorted = group.sort((a, b) => String(a.extAddress || a.rloc16).localeCompare(String(b.extAddress || b.rloc16)));
+          sorted.forEach((child, index) => {
+            child.x = margin.left + ((index + 1) * (width - margin.left - margin.right)) / (sorted.length + 1);
+            child.y = y;
+          });
+        }
+      } else {
+        // In signal mode, place children below their parent
+        for (const child of childNodes) {
+          const count = child.parent.children.length;
+          const spread = (count - 1) * 48;
+          child.x = child.parent.x - spread / 2 + child.index * 48;
+          child.y = child.parent.y + 62;
+        }
+      }
+
+      const bandLayer = svg.append("g");
+      const meshLayer = svg.append("g");
+      const directionLayer = svg.append("g");
+      const childLayer = svg.append("g");
+      const nodeLayer = svg.append("g");
+
+      const defs = svg.append("defs");
+      [
+        ["ok", "var(--lq3)"],
+        ["watch", "var(--lq2)"],
+        ["weak", "var(--lq1)"]
+      ].forEach(([name, fill]) => {
+        defs.append("marker")
+          .attr("id", `arrow-${name}`)
+          .attr("viewBox", "0 0 10 10")
+          .attr("refX", 8)
+          .attr("refY", 5)
+          .attr("markerWidth", 6)
+          .attr("markerHeight", 6)
+          .attr("orient", "auto-start-reverse")
+          .append("path")
+          .attr("d", "M 0 0 L 10 5 L 0 10 z")
+          .attr("fill", fill);
+      });
+
+      bandValues.forEach((bandValue, index) => {
+        const y = margin.top + index * bandGap;
+        bandLayer.append("line").attr("class", "band-line").attr("x1", margin.left).attr("x2", width - margin.right).attr("y1", y).attr("y2", y);
+        bandLayer.append("text").attr("class", "band-label").attr("x", margin.left).attr("y", y - 12).text(bandLabels.get(bandValue) || String(bandValue));
+      });
+
+      function curve(edge) {
+        const midX = (edge.source.x + edge.target.x) / 2;
+        const midY = (edge.source.y + edge.target.y) / 2;
+        const lift = edge.source.y === edge.target.y ? -36 : 0;
+        return `M${edge.source.x},${edge.source.y} Q${midX},${midY + lift} ${edge.target.x},${edge.target.y}`;
+      }
+
+      function reportCurve(report) {
+        const source = routerById.get(report.from);
+        const target = routerById.get(report.to);
+        if (!source || !target) return "";
+        const dx = target.x - source.x;
+        const dy = target.y - source.y;
+        const distance = Math.max(1, Math.hypot(dx, dy));
+        const trim = 28;
+        const startX = source.x + (dx / distance) * trim;
+        const startY = source.y + (dy / distance) * trim;
+        const endX = target.x - (dx / distance) * trim;
+        const endY = target.y - (dy / distance) * trim;
+        const midX = (startX + endX) / 2;
+        const midY = (startY + endY) / 2;
+        const lift = Math.abs(source.y - target.y) < 1 ? -36 : 0;
+        return `M${startX},${startY} Q${midX},${midY + lift} ${endX},${endY}`;
+      }
+
+      function markerFor(report) {
+        const severity = reportSeverity(report);
+        if (severity >= 3) return "url(#arrow-weak)";
+        if (severity >= 1) return "url(#arrow-watch)";
+        return "url(#arrow-ok)";
+      }
+
+      function showDirections(reports) {
+        directionLayer.selectAll("path").data(reports, (report) => `${report.from}-${report.to}`).join("path")
+          .attr("class", "direction-edge")
+          .attr("stroke", (report) => severityColor(reportSeverity(report)))
+          .attr("stroke-width", (report) => Math.max(2.2, Math.min(5.5, 2 + (report.linkMargin || 0) / 16)))
+          .attr("marker-end", markerFor)
+          .attr("d", reportCurve);
+      }
+
+      function clearDirections() {
+        directionLayer.selectAll("*").remove();
+      }
+
+      const mesh = meshLayer.selectAll("path").data(meshLinks).join("path")
+        .attr("class", "mesh-edge")
+        .attr("stroke", (edge) => severityColor(edge.severity))
+        .attr("stroke-width", (edge) => Math.max(1.5, Math.min(5, 1.5 + (edge.bestMargin || 0) / 18)))
+        .attr("opacity", (edge) => edge.severity >= 3 ? 0.5 : 0.62)
+        .attr("d", curve)
+        .on("click", (event, edge) => {
+          event.stopPropagation();
+          selectMesh(edge);
+        });
+
+      const childLinks = childLayer.selectAll("line").data(childNodes).join("line")
+        .attr("class", "child-edge")
+        .attr("stroke", (child) => severityColor(reportSeverity(child)))
+        .attr("stroke-width", 1.8)
+        .attr("opacity", 0.74)
+        .attr("x1", (child) => child.parent.x)
+        .attr("y1", (child) => child.parent.y + 23)
+        .attr("x2", (child) => child.x)
+        .attr("y2", (child) => child.y - 14)
+        .on("click", (event, child) => {
+          event.stopPropagation();
+          selectChild(child);
+        });
+
+      const routerNode = nodeLayer.selectAll("g.router-node").data(routers).join("g")
+        .attr("class", "router-node")
+        .attr("transform", (router) => `translate(${router.x},${router.y})`)
+        .on("click", (event, router) => {
+          event.stopPropagation();
+          selectRouter(router);
+        });
+      routerNode.append("circle").attr("r", (router) => router.id === leader.id ? 25 : 22).attr("fill", (router) => router.id === leader.id ? "var(--leader)" : "var(--router)").attr("opacity", 0.9);
+      routerNode.append("text").attr("class", "main").attr("text-anchor", "middle").attr("dy", "-0.1em").text((router) => router.id);
+      routerNode.append("text").attr("class", "sub").attr("text-anchor", "middle").attr("dy", "1.2em").text((router) => router.children.length ? `+${router.children.length}` : "");
+      routerNode.append("text").attr("class", "name-label").attr("text-anchor", "middle").attr("dy", "3.25em").text((router) => compactName(router.name));
+      const brBadge = routerNode.filter((router) => router.borderRouter).append("g").attr("class", "br-badge").attr("transform", "translate(14,-28)");
+      brBadge.append("rect").attr("x", -8).attr("y", -6).attr("width", 21).attr("height", 13).attr("rx", 4);
+      brBadge.append("text").attr("text-anchor", "middle").attr("x", 2.5).attr("y", 4).text("BR");
+
+      const childNode = nodeLayer.selectAll("g.child-node").data(childNodes).join("g")
+        .attr("class", "child-node")
+        .attr("transform", (child) => `translate(${child.x},${child.y})`)
+        .on("click", (event, child) => {
+          event.stopPropagation();
+          selectChild(child);
+        });
+      childNode.append("circle").attr("r", 15).attr("fill", "var(--child)").attr("opacity", 0.86);
+      childNode.append("text").attr("class", "main").attr("text-anchor", "middle").attr("dy", "0.35em").text((child) => child.childId);
+      childNode.append("text").attr("class", "name-label").attr("text-anchor", "middle").attr("dy", "2.85em").text((child) => compactName(child.name));
+
+      function reset() {
+        routerNode.classed("dim", false);
+        childNode.classed("dim", false);
+        mesh.classed("dim", false);
+        childLinks.classed("dim", false);
+        clearDirections();
+        detail.textContent = "Select a router, child, or link.";
+      }
+      function selectRouter(router) {
+        const related = new Set([router.id]);
+        meshLinks.forEach((edge) => {
+          if (edge.source.id === router.id || edge.target.id === router.id) {
+            related.add(edge.source.id);
+            related.add(edge.target.id);
+          }
+        });
+        routerNode.classed("dim", (item) => !related.has(item.id));
+        childNode.classed("dim", (item) => item.parent.id !== router.id);
+        mesh.classed("dim", (edge) => edge.source.id !== router.id && edge.target.id !== router.id);
+        childLinks.classed("dim", (child) => child.parent.id !== router.id);
+        const extras = router.info ? [router.info.location, router.info.notes].filter(Boolean).join(" · ") : "";
+        const reports = [];
+        for (const edge of meshLinks) {
+          for (const report of edge.reports) {
+            if (report.from === router.id) {
+              reports.push({ ...report, severity: reportSeverity(report), targetName: deviceName(routerById.get(report.to)?.extAddress, `Router ${report.to}`) });
+            }
+          }
+        }
+        reports.sort((a, b) => reportSeverity(b) - reportSeverity(a) || (a.linkMargin ?? 999) - (b.linkMargin ?? 999) || a.to - b.to);
+        showDirections(reports);
+        const rows = reports.map((report) => `
+          <tr>
+            <td>${esc(severityLabel(report.severity))}</td>
+            <td>r${esc(report.to)}</td>
+            <td>${esc(report.targetName)}</td>
+            <td class="num">${esc(fmt(report.linkQuality))}</td>
+            <td class="num">${esc(fmt(report.linkMargin, "dB"))}</td>
+            <td class="num">${esc(fmt(report.averageRssi, "dBm"))}</td>
+            <td class="num">${esc(fmt(report.lastRssi, "dBm"))}</td>
+            <td class="num">${esc(fmt(report.frameErrorRate))}</td>
+            <td class="num">${esc(fmt(report.messageErrorRate))}</td>
+          </tr>
+        `).join("");
+        const table = rows ? `<table class="signal-table"><thead><tr><th>Status</th><th>To</th><th>Name</th><th class="num">LQ</th><th class="num">Margin</th><th class="num">Avg RSSI</th><th class="num">Last RSSI</th><th class="num">FER</th><th class="num">MER</th></tr></thead><tbody>${rows}</tbody></table>` : "";
+        detail.innerHTML = `<b>${esc(router.name)}</b> Router ${esc(router.id)} · ${esc(routerRole(router))} · signal ${esc(routerSignalLabel(router))} · reliable neighbors ${esc(router.reliableNeighborCount)} · leader route cost ${esc(fmt(router.leaderRouteCost))} · weak edge ratio ${esc(Math.round(router.weakEdgeRatio * 100))}% · ext ${esc(router.extAddress || "-")} · rloc16 ${esc(router.rloc16)} · children ${router.children.length}/${router.childCount} · child table ${esc(router.childTableStatus)} · neighbor table ${esc(router.routerNeighborTableStatus)} · LQ1 ${router.counts.lq1 ?? 0}, LQ2 ${router.counts.lq2 ?? 0}, LQ3 ${router.counts.lq3 ?? 0}, LQ missing ${router.counts.missing ?? 0}${extras ? " · " + esc(extras) : ""}${table}`;
+      }
+      function selectChild(child) {
+        routerNode.classed("dim", (router) => router.id !== child.parent.id);
+        childNode.classed("dim", (item) => item.id !== child.id);
+        mesh.classed("dim", true);
+        childLinks.classed("dim", (item) => item.id !== child.id);
+        clearDirections();
+        const extras = child.info ? [child.info.location, child.info.notes].filter(Boolean).join(" · ") : "";
+        detail.innerHTML = `<b>${esc(child.name)}</b> Child ${esc(child.childId)} · ext ${esc(child.extAddress || "-")} · rloc16 ${esc(child.rloc16)} · parent ${esc(child.parent.name)} · status ${esc(severityLabel(reportSeverity(child)))} · LQ ${esc(fmt(child.linkQuality))} · margin ${esc(fmt(child.linkMargin, "dB"))} · RSSI ${esc(fmt(child.averageRssi))}/${esc(fmt(child.lastRssi, "dBm"))} · queued ${esc(fmt(child.queuedMessages))} · timeout ${esc(child.timeout)}${extras ? " · " + esc(extras) : ""}`;
+      }
+      function selectMesh(edge) {
+        routerNode.classed("dim", (router) => router.id !== edge.source.id && router.id !== edge.target.id);
+        childNode.classed("dim", true);
+        mesh.classed("dim", (item) => item !== edge);
+        childLinks.classed("dim", true);
+        showDirections(edge.reports);
+        const rows = edge.reports
+          .slice()
+          .sort((a, b) => a.from - b.from)
+          .map((report) => `
+            <tr>
+              <td>r${esc(report.from)} → r${esc(report.to)}</td>
+              <td>${esc(deviceName(routerById.get(report.from)?.extAddress, `Router ${report.from}`))}</td>
+              <td>${esc(deviceName(routerById.get(report.to)?.extAddress, `Router ${report.to}`))}</td>
+              <td>${esc(severityLabel(reportSeverity(report)))}</td>
+              <td class="num">${esc(fmt(report.linkQuality))}</td>
+              <td class="num">${esc(fmt(report.linkMargin, "dB"))}</td>
+              <td class="num">${esc(fmt(report.averageRssi, "dBm"))}</td>
+              <td class="num">${esc(fmt(report.lastRssi, "dBm"))}</td>
+              <td class="num">${esc(fmt(report.frameErrorRate))}</td>
+              <td class="num">${esc(fmt(report.messageErrorRate))}</td>
+            </tr>
+          `).join("");
+        detail.innerHTML = `<b>Router ${esc(edge.source.id)} ↔ ${esc(edge.target.id)}</b> two-way LQ ${esc(fmt(edge.twoWayLq))}, route cost ${esc(fmt(edge.routeCost))}, best margin ${esc(fmt(edge.bestMargin, "dB"))}, best LQ ${esc(fmt(edge.bestLq))}<table class="signal-table"><thead><tr><th>Direction</th><th>From</th><th>To</th><th>Status</th><th class="num">LQ</th><th class="num">Margin</th><th class="num">Avg RSSI</th><th class="num">Last RSSI</th><th class="num">FER</th><th class="num">MER</th></tr></thead><tbody>${rows}</tbody></table>`;
+      }
+      svg.on("click", reset);
+    }
+
+    load();
+    setInterval(load, 30000);
+  </script>
+</body>
+</html>
