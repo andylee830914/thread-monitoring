@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Thread Monitoring
+    orgId: 1
+    folder: Thread
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

@@ -1,0 +1,107 @@
+groups:
+  - name: thread-topology
+    rules:
+      - alert: ThreadProbeDown
+        expr: thread_probe_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Thread probe exporter cannot reach the WROOM API
+
+      - alert: ThreadScanPending
+        expr: thread_pending > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Thread router-neighbor scan has pending routers
+
+      - alert: ThreadRouterMissing
+        expr: thread_router_count < 11
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Thread router count is below the expected baseline
+
+      - alert: ThreadChildMissing
+        expr: thread_child_missing_count > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Thread child count is below the expected baseline
+          description: "{{ $value }} expected child device(s) are not listed in the latest scan."
+
+      - alert: ThreadRouterTableTimeout
+        expr: thread_router_table_status == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Thread router {{ $labels.router_id }} {{ $labels.table }} status is {{ $labels.status }}
+          description: "Router {{ $labels.router_id }} {{ $labels.ext_address }} did not return a complete {{ $labels.table }} table."
+
+      - alert: ThreadRouterWeak
+        expr: thread_router_signal_status{status="weak"} == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Thread router {{ $labels.router_id }} is weak
+          description: "Router {{ $labels.router_id }} {{ $labels.ext_address }} is classified as weak by topology graph evaluation."
+
+      - alert: ThreadRouterLinkQualityMismatch
+        expr: thread_router_neighbor_link_quality <= 1 and thread_router_neighbor_link_margin_db >= 20
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: Thread router {{ $labels.source_router }} reports low LQ but healthy margin to router {{ $labels.target_router }}
+          description: "Router {{ $labels.source_router }} -> {{ $labels.target_router }} {{ $labels.target_ext_address }} reports low link quality with link margin >= 20dB."
+
+      - alert: ThreadRouterNeighborDiagnosticsMissing
+        expr: (thread_router_neighbor_diagnostic_present{field=~"link_quality|link_margin|average_rssi"} == 0) unless on(source_router) label_replace(thread_router_table_status{table="router_neighbor_table",status!="ok"} == 0, "source_router", "$1", "router_id", "(.*)")
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: Thread router {{ $labels.source_router }} is missing {{ $labels.field }} for router {{ $labels.target_router }}
+          description: "Router {{ $labels.source_router }} -> {{ $labels.target_router }} {{ $labels.target_ext_address }} is missing a neighbor diagnostic field."
+
+      - alert: ThreadChildWeakLink
+        expr: (((thread_child_link_margin_db > 0) and (thread_child_link_margin_db <= 12)) or thread_child_average_rssi_dbm <= -100) * on(child_ext_address) group_left(name, location) (0 * topk by (child_ext_address) (1, label_replace(thread_device_name{kind="child"}, "child_ext_address", "$1", "ext_address", "(.*)")) + 1)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Thread child {{ $labels.name }} has a weak link
+          description: "{{ $labels.location }} child {{ $labels.child_ext_address }} on parent {{ $labels.parent_router }} has low link margin or low RSSI."
+
+      - alert: ThreadChildLinkQualityMismatch
+        expr: (thread_child_link_quality <= 1 and thread_child_link_margin_db >= 20) * on(child_ext_address) group_left(name, location) (0 * topk by (child_ext_address) (1, label_replace(thread_device_name{kind="child"}, "child_ext_address", "$1", "ext_address", "(.*)")) + 1)
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: Thread child {{ $labels.name }} reports low LQ but healthy margin
+          description: "{{ $labels.location }} child {{ $labels.child_ext_address }} on parent {{ $labels.parent_router }} reports low link quality with link margin >= 20dB."
+
+      - alert: ThreadChildQueuedMessages
+        expr: thread_child_queued_messages > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Thread child has queued messages
+          description: "Child {{ $labels.child_ext_address }} on parent {{ $labels.parent_router }} has {{ $value }} queued messages."
+
+      - alert: ThreadChildNearTimeout
+        expr: thread_child_age_seconds > (thread_child_timeout_seconds * 0.8)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Thread child is near timeout
+          description: "Child {{ $labels.child_ext_address }} on parent {{ $labels.parent_router }} has age {{ $value }} seconds."

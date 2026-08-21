@@ -1,0 +1,613 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "thread_probe_up",
+          "refId": "A"
+        }
+      ],
+      "title": "Probe Up",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "thread_pending",
+          "refId": "A"
+        }
+      ],
+      "title": "Pending Routers",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "thread_router_count",
+          "refId": "A"
+        }
+      ],
+      "title": "Routers",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "thread_child_count",
+          "refId": "A"
+        }
+      ],
+      "title": "Children",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "thread_probe_scan_duration_seconds",
+          "refId": "A"
+        }
+      ],
+      "title": "Scan Seconds",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "thread_probe_last_success_timestamp_seconds * 1000",
+          "refId": "A"
+        }
+      ],
+      "title": "Last Success",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "never"
+          },
+          "unit": "dB",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "((thread_router_neighbor_link_margin_db * on(source_router) group_left(source_ext_address) label_replace(label_replace(thread_router_present, \"source_router\", \"$1\", \"router_id\", \"(.*)\"), \"source_ext_address\", \"$1\", \"ext_address\", \"(.*)\")) * on(source_ext_address) group_left(source_name,source_location) (0 * topk by (source_ext_address) (1, label_replace(label_replace(label_replace(thread_device_name{kind=\"router\"}, \"source_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"source_name\", \"$1\", \"name\", \"(.*)\"), \"source_location\", \"$1\", \"location\", \"(.*)\")) + 1)) * on(target_ext_address) group_left(target_name,target_location) (0 * topk by (target_ext_address) (1, label_replace(label_replace(label_replace(thread_device_name{kind=\"router\"}, \"target_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"target_name\", \"$1\", \"name\", \"(.*)\"), \"target_location\", \"$1\", \"location\", \"(.*)\")) + 1)",
+          "legendFormat": "{{source_name}} ({{source_location}}) -> {{target_name}} ({{target_location}})",
+          "refId": "A"
+        }
+      ],
+      "title": "Router Neighbor Link Margin",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "never"
+          },
+          "unit": "dB",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "max by (child_ext_address,name,location) (thread_child_link_margin_db * on(child_ext_address) group_left(name,location) (0 * topk by (child_ext_address) (1, label_replace(thread_device_name{kind=\"child\"}, \"child_ext_address\", \"$1\", \"ext_address\", \"(.*)\")) + 1))",
+          "legendFormat": "{{name}} ({{location}}) {{child_ext_address}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Child Link Margin by MAC",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "id": 9,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "expr": "thread_router_graph_health_info * on(ext_address) group_left(name,location) (0 * topk by (ext_address) (1, thread_device_name{kind=\"router\"}) + 1)",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Current Router Graph Health",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "job": true,
+              "instance": true
+            },
+            "indexByName": {
+              "location": 0,
+              "name": 1,
+              "router_id": 2,
+              "status": 3,
+              "reliable_neighbors": 4,
+              "leader_route_cost": 5,
+              "weak_edge_ratio": 6,
+              "ext_address": 7,
+              "rloc16": 8
+            },
+            "renameByName": {
+              "ext_address": "ext address",
+              "leader_route_cost": "leader route cost",
+              "location": "location",
+              "name": "device",
+              "reliable_neighbors": "reliable neighbors",
+              "router_id": "router",
+              "status": "status",
+              "weak_edge_ratio": "weak edge ratio"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "location"
+              },
+              {
+                "field": "device"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "id": 10,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "expr": "((thread_child_link_margin_db * on(child_ext_address) group_left(child_name,child_location) (0 * topk by (child_ext_address) (1, label_replace(label_replace(label_replace(thread_device_name{kind=\"child\"}, \"child_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"child_name\", \"$1\", \"name\", \"(.*)\"), \"child_location\", \"$1\", \"location\", \"(.*)\")) + 1)) * on(parent_router) group_left(parent_ext_address) label_replace(label_replace(thread_router_present, \"parent_router\", \"$1\", \"router_id\", \"(.*)\"), \"parent_ext_address\", \"$1\", \"ext_address\", \"(.*)\")) * on(parent_ext_address) group_left(parent_name,parent_location) (0 * topk by (parent_ext_address) (1, label_replace(label_replace(label_replace(thread_device_name{kind=\"router\"}, \"parent_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"parent_name\", \"$1\", \"name\", \"(.*)\"), \"parent_location\", \"$1\", \"location\", \"(.*)\")) + 1)",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Current Child Link Margin",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true,
+              "instance": true
+            },
+            "indexByName": {
+              "child_location": 0,
+              "child_name": 1,
+              "parent_location": 2,
+              "parent_name": 3,
+              "parent_router": 4,
+              "Value": 5,
+              "child_ext_address": 6,
+              "child_id": 7,
+              "child_rloc16": 8,
+              "parent_ext_address": 9
+            },
+            "renameByName": {
+              "Value": "margin_db",
+              "child_location": "location",
+              "child_name": "device",
+              "parent_location": "parent location",
+              "parent_name": "parent device",
+              "parent_ext_address": "parent ext address",
+              "child_ext_address": "child ext address",
+              "parent_router": "parent"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "location"
+              },
+              {
+                "field": "device"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 70,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "id": 11,
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "mergeValues": true,
+        "rowHeight": 0.9,
+        "showValue": "never",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "max by (child_ext_address,name,location) (thread_child_parent_router * on(child_ext_address) group_left(name,location) (0 * topk by (child_ext_address) (1, label_replace(thread_device_name{kind=\"child\"}, \"child_ext_address\", \"$1\", \"ext_address\", \"(.*)\")) + 1))",
+          "legendFormat": "{{name}} ({{location}}) {{child_ext_address}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Child Parent Router History",
+      "type": "state-timeline"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "thread",
+    "wroom"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Thread Topology Overview",
+  "uid": "thread-topology-overview",
+  "version": 1,
+  "weekStart": ""
+}

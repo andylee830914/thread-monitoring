@@ -1,0 +1,28 @@
+{
+  "66883c9998341936": {
+    "name": "Living Room Sensor",
+    "location": "1F Living Room",
+    "notes": "Thread child device near the window"
+  },
+  "4e55393db29681ad": {
+    "name": "HomePod Mini",
+    "location": "1F Living Room",
+    "notes": "Thread border router"
+  },
+  "225b2c059b1b661d": {
+    "name": "HomePod Mini",
+    "location": "2F Bedroom",
+    "notes": "Thread border router"
+  },
+  "a2da229b83485860": {
+    "name": "Smart Plug",
+    "location": "4F Office",
+    "notes": "Router-capable plug"
+  },
+  "5c00": {
+    "name": "Temporary Router",
+    "location": "Lab",
+    "notes": "Example using rloc16 when ext_address is not available"
+  },
+  "7ebee63681a7f3f9": "Doorbell Button"
+}
