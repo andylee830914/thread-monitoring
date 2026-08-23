@@ -195,6 +195,7 @@ Included starter alerts cover:
 - missing neighbor diagnostic fields
 - router table timeouts
 - router graph health classified as weak
+- router leader route cost above `4`
 - child queued messages or near-timeout age
 
 Tune router and child baselines after a few days of normal traffic.

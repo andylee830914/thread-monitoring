@@ -354,7 +354,7 @@ groups:
               to: 0
             datasourceUid: Prometheus
             model:
-              expr: (((thread_child_link_margin_db > bool 0) and (thread_child_link_margin_db <= bool 12)) or (thread_child_average_rssi_dbm <= bool -100)) * on(child_ext_address) group_left(name, location) (0 * topk by (child_ext_address) (1, label_replace(thread_device_name{kind="child"}, "child_ext_address", "$1", "ext_address", "(.*)")) + 1)
+              expr: clamp_max((((thread_child_link_margin_db > bool 0) * (thread_child_link_margin_db <= bool 12)) or (0 * thread_child_present)) + ((thread_child_average_rssi_dbm <= bool -100) or (0 * thread_child_present)), 1) * on(child_ext_address) group_left(name, location) (0 * topk by (child_ext_address) (1, label_replace(thread_device_name{kind="child"}, "child_ext_address", "$1", "ext_address", "(.*)")) + 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -411,7 +411,7 @@ groups:
               refId: C
               type: threshold
 
-        noDataState: NoData
+        noDataState: OK
         execErrState: Error
         for: 11m
 
@@ -438,7 +438,7 @@ groups:
               to: 0
             datasourceUid: Prometheus
             model:
-              expr: thread_router_signal_status{status="weak"} == 1
+              expr: thread_router_signal_status{status="weak"} == bool 1
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -495,13 +495,97 @@ groups:
               refId: C
               type: threshold
 
-        noDataState: NoData
+        noDataState: OK
         execErrState: Error
         for: 11m
 
         annotations:
           summary: Thread router {{ $labels.router_id }} is weak
           description: "Router {{ $labels.router_id }} {{ $labels.ext_address }} is classified as weak by topology graph evaluation"
+
+        labels:
+          severity: warning
+
+        isPaused: false
+
+        notification_settings:
+          receiver: Telegram
+
+      - uid: thread-high-route-cost
+        title: ThreadHighRouteCost
+        condition: C
+
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: Prometheus
+            model:
+              expr: thread_router_leader_route_cost > bool 4
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: []
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - B
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+        noDataState: OK
+        execErrState: Error
+        for: 11m
+
+        annotations:
+          summary: Thread router {{ $labels.router_id }} has high route cost
+          description: "Router {{ $labels.router_id }} {{ $labels.ext_address }} has leader route cost above 4"
 
         labels:
           severity: warning

@@ -52,6 +52,15 @@ groups:
           summary: Thread router {{ $labels.router_id }} is weak
           description: "Router {{ $labels.router_id }} {{ $labels.ext_address }} is classified as weak by topology graph evaluation."
 
+      - alert: ThreadHighRouteCost
+        expr: thread_router_leader_route_cost > 4
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Thread router {{ $labels.router_id }} has high route cost
+          description: "Router {{ $labels.router_id }} {{ $labels.ext_address }} has leader route cost above 4."
+
       - alert: ThreadRouterLinkQualityMismatch
         expr: thread_router_neighbor_link_quality <= 1 and thread_router_neighbor_link_margin_db >= 20
         for: 10m
