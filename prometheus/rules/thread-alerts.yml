@@ -80,7 +80,7 @@ groups:
           description: "Router {{ $labels.source_router }} -> {{ $labels.target_router }} {{ $labels.target_ext_address }} is missing a neighbor diagnostic field."
 
       - alert: ThreadChildWeakLink
-        expr: (((thread_child_link_margin_db > 0) and (thread_child_link_margin_db <= 12)) or thread_child_average_rssi_dbm <= -100) * on(child_ext_address) group_left(name, location) (0 * topk by (child_ext_address) (1, label_replace(thread_device_name{kind="child"}, "child_ext_address", "$1", "ext_address", "(.*)")) + 1)
+        expr: (((thread_child_link_margin_db > 0) and (thread_child_link_margin_db <= 12)) or thread_child_average_rssi_dbm <= -100) * on(child_key) group_left(name, location) (0 * topk by (child_key) (1, label_replace(thread_device_name{kind="child"}, "child_key", "$1", "device_key", "(.*)")) + 1)
         for: 10m
         labels:
           severity: warning
@@ -89,7 +89,7 @@ groups:
           description: "{{ $labels.location }} child {{ $labels.child_ext_address }} on parent {{ $labels.parent_router }} has low link margin or low RSSI."
 
       - alert: ThreadChildLinkQualityMismatch
-        expr: (thread_child_link_quality <= 1 and thread_child_link_margin_db >= 20) * on(child_ext_address) group_left(name, location) (0 * topk by (child_ext_address) (1, label_replace(thread_device_name{kind="child"}, "child_ext_address", "$1", "ext_address", "(.*)")) + 1)
+        expr: (thread_child_link_quality <= 1 and thread_child_link_margin_db >= 20) * on(child_key) group_left(name, location) (0 * topk by (child_key) (1, label_replace(thread_device_name{kind="child"}, "child_key", "$1", "device_key", "(.*)")) + 1)
         for: 10m
         labels:
           severity: info

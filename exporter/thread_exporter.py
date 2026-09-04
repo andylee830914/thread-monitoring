@@ -21,6 +21,7 @@ SCAN_TIMEOUT_SECONDS = int(os.getenv("SCAN_TIMEOUT_SECONDS", "30"))
 HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "5"))
 SCAN_ON_COLLECT = os.getenv("SCAN_ON_COLLECT", "true").lower() not in {"0", "false", "no"}
 DEVICE_MAP_PATH = os.getenv("DEVICE_MAP_PATH", "/config/device-map.json")
+DEVICE_CACHE_PATH = os.getenv("DEVICE_CACHE_PATH", "/data/device-cache.json")
 EXPECTED_CHILD_COUNT = int(os.getenv("EXPECTED_CHILD_COUNT", "7"))
 TOPOLOGY_TEMPLATE_PATH = Path(__file__).with_name("templates") / "topology.html"
 
@@ -29,6 +30,10 @@ logger = logging.getLogger("thread-exporter")
 latest_payload: dict[str, Any] = {}
 latest_error = ""
 payload_lock = threading.Lock()
+child_ext_address_by_rloc16: dict[str, str] = {}
+router_ext_address_by_rloc16: dict[str, str] = {}
+device_cache_lock = threading.Lock()
+device_cache_dirty = False
 
 scan_info = Info("thread_probe_scan", "Last Thread router-neighbor scan metadata")
 up = Gauge("thread_probe_up", "1 when the WROOM API can be reached")
@@ -65,23 +70,24 @@ router_neighbor_error_rate_supported = Gauge("thread_router_neighbor_error_rate_
 router_neighbor_frame_error_rate = Gauge("thread_router_neighbor_frame_error_rate", "Router neighbor frame error rate as reported by Thread diagnostics", ["source_router", "target_router", "target_rloc16", "target_ext_address"])
 router_neighbor_message_error_rate = Gauge("thread_router_neighbor_message_error_rate", "Router neighbor message error rate as reported by Thread diagnostics", ["source_router", "target_router", "target_rloc16", "target_ext_address"])
 
-child_present = Gauge("thread_child_present", "Child device is present in latest scan", ["parent_router", "child_id", "child_rloc16", "child_ext_address"])
-child_parent_router = Gauge("thread_child_parent_router", "Current parent router id for a child device", ["child_id", "child_rloc16", "child_ext_address"])
-child_parent_info = Gauge("thread_child_parent_info", "Current parent router labels for a child device", ["child_id", "child_rloc16", "child_ext_address", "parent_router", "parent_rloc16", "parent_ext_address"])
-child_link_quality = Gauge("thread_child_link_quality", "Child link quality reported by parent router", ["parent_router", "child_id", "child_rloc16", "child_ext_address"])
-child_diagnostic_present = Gauge("thread_child_diagnostic_present", "1 when a child diagnostic field is present in the latest scan", ["parent_router", "child_id", "child_rloc16", "child_ext_address", "field"])
-child_timeout = Gauge("thread_child_timeout_seconds", "Child timeout in seconds", ["parent_router", "child_id", "child_rloc16", "child_ext_address"])
-child_age = Gauge("thread_child_age_seconds", "Child age in seconds since last heard by parent router", ["parent_router", "child_id", "child_rloc16", "child_ext_address"])
-child_connection_time = Gauge("thread_child_connection_time_seconds", "Child connection time in seconds", ["parent_router", "child_id", "child_rloc16", "child_ext_address"])
-child_link_margin = Gauge("thread_child_link_margin_db", "Child link margin in dB", ["parent_router", "child_id", "child_rloc16", "child_ext_address"])
-child_average_rssi = Gauge("thread_child_average_rssi_dbm", "Child average RSSI in dBm", ["parent_router", "child_id", "child_rloc16", "child_ext_address"])
-child_last_rssi = Gauge("thread_child_last_rssi_dbm", "Child last RSSI in dBm", ["parent_router", "child_id", "child_rloc16", "child_ext_address"])
-child_queued_messages = Gauge("thread_child_queued_messages", "Queued message count for sleepy child devices", ["parent_router", "child_id", "child_rloc16", "child_ext_address"])
-child_error_rate_supported = Gauge("thread_child_error_rate_supported", "1 when child diagnostics include error rates", ["parent_router", "child_id", "child_rloc16", "child_ext_address"])
-child_frame_error_rate = Gauge("thread_child_frame_error_rate", "Child frame error rate as reported by Thread diagnostics", ["parent_router", "child_id", "child_rloc16", "child_ext_address"])
-child_message_error_rate = Gauge("thread_child_message_error_rate", "Child message error rate as reported by Thread diagnostics", ["parent_router", "child_id", "child_rloc16", "child_ext_address"])
-child_mode = Gauge("thread_child_mode", "Child mode flags", ["parent_router", "child_id", "child_rloc16", "child_ext_address", "flag"])
-device_name = Gauge("thread_device_name", "Device name mapping from configured ext_address table; value is update timestamp", ["ext_address", "rloc16", "name", "location", "kind"])
+child_labels = ["child_key", "parent_router", "child_id", "child_rloc16", "child_ext_address"]
+child_present = Gauge("thread_child_present", "Child device is present in latest scan", child_labels)
+child_parent_router = Gauge("thread_child_parent_router", "Current parent router id for a child device", ["child_key", "child_id", "child_rloc16", "child_ext_address"])
+child_parent_info = Gauge("thread_child_parent_info", "Current parent router labels for a child device", ["child_key", "child_id", "child_rloc16", "child_ext_address", "parent_router", "parent_rloc16", "parent_ext_address"])
+child_link_quality = Gauge("thread_child_link_quality", "Child link quality reported by parent router", child_labels)
+child_diagnostic_present = Gauge("thread_child_diagnostic_present", "1 when a child diagnostic field is present in the latest scan", [*child_labels, "field"])
+child_timeout = Gauge("thread_child_timeout_seconds", "Child timeout in seconds", child_labels)
+child_age = Gauge("thread_child_age_seconds", "Child age in seconds since last heard by parent router", child_labels)
+child_connection_time = Gauge("thread_child_connection_time_seconds", "Child connection time in seconds", child_labels)
+child_link_margin = Gauge("thread_child_link_margin_db", "Child link margin in dB", child_labels)
+child_average_rssi = Gauge("thread_child_average_rssi_dbm", "Child average RSSI in dBm", child_labels)
+child_last_rssi = Gauge("thread_child_last_rssi_dbm", "Child last RSSI in dBm", child_labels)
+child_queued_messages = Gauge("thread_child_queued_messages", "Queued message count for sleepy child devices", child_labels)
+child_error_rate_supported = Gauge("thread_child_error_rate_supported", "1 when child diagnostics include error rates", child_labels)
+child_frame_error_rate = Gauge("thread_child_frame_error_rate", "Child frame error rate as reported by Thread diagnostics", child_labels)
+child_message_error_rate = Gauge("thread_child_message_error_rate", "Child message error rate as reported by Thread diagnostics", child_labels)
+child_mode = Gauge("thread_child_mode", "Child mode flags", [*child_labels, "flag"])
+device_name = Gauge("thread_device_name", "Device display name from device map or generated fallback; value is update timestamp", ["device_key", "ext_address", "rloc16", "name", "location", "kind"])
 
 
 def get_json(path: str) -> dict[str, Any]:
@@ -118,6 +124,161 @@ def load_device_map() -> dict[str, dict[str, str]]:
                 "notes": str(value.get("notes") or ""),
             }
     return normalized
+
+
+def display_entry(names: dict[str, dict[str, str]], ext_address: str, rloc16: str, fallback_name: str) -> dict[str, str]:
+    entry = names.get(ext_address.lower()) or names.get(rloc16.lower())
+    if entry:
+        return entry
+    return {"name": fallback_name, "location": "Unknown", "notes": ""}
+
+
+def text_value(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def optional_text(value: Any) -> str:
+    text = text_value(value)
+    if text.lower() in {"none", "null", "undefined", "-"}:
+        return ""
+    return text
+
+
+def normalize_cache(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    normalized = {}
+    for rloc16, ext_address in value.items():
+        key = optional_text(rloc16).lower()
+        address = optional_text(ext_address)
+        if key and address:
+            normalized[key] = address
+    return normalized
+
+
+def load_device_cache() -> None:
+    if not DEVICE_CACHE_PATH:
+        return
+    path = Path(DEVICE_CACHE_PATH)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except FileNotFoundError:
+        return
+    except Exception:
+        logger.exception("failed to read device cache: %s", DEVICE_CACHE_PATH)
+        return
+
+    if not isinstance(raw, dict):
+        logger.warning("device cache root must be an object: %s", DEVICE_CACHE_PATH)
+        return
+
+    with device_cache_lock:
+        child_ext_address_by_rloc16.update(normalize_cache(raw.get("children")))
+        router_ext_address_by_rloc16.update(normalize_cache(raw.get("routers")))
+
+
+def save_device_cache_if_dirty() -> None:
+    global device_cache_dirty
+    if not DEVICE_CACHE_PATH:
+        return
+    with device_cache_lock:
+        if not device_cache_dirty:
+            return
+        payload = {
+            "children": dict(sorted(child_ext_address_by_rloc16.items())),
+            "routers": dict(sorted(router_ext_address_by_rloc16.items())),
+            "updated_at": int(time.time()),
+        }
+        device_cache_dirty = False
+
+    path = Path(DEVICE_CACHE_PATH)
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        tmp_path.replace(path)
+    except Exception:
+        with device_cache_lock:
+            device_cache_dirty = True
+        logger.exception("failed to write device cache: %s", DEVICE_CACHE_PATH)
+
+
+def stable_ext_address(cache: dict[str, str], rloc16: str, ext_address: str) -> str:
+    global device_cache_dirty
+    if ext_address:
+        if rloc16:
+            key = rloc16.lower()
+            with device_cache_lock:
+                if cache.get(key) != ext_address:
+                    cache[key] = ext_address
+                    device_cache_dirty = True
+        return ext_address
+    if rloc16:
+        with device_cache_lock:
+            return cache.get(rloc16.lower(), "")
+    return ""
+
+
+def parse_int(value: Any, base: int = 10) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(text, base)
+    except ValueError:
+        return None
+
+
+def parse_rloc16(value: Any) -> int | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    if text.startswith("0x"):
+        text = text[2:]
+    try:
+        return int(text, 16)
+    except ValueError:
+        return None
+
+
+def derive_child_rloc16(parent_rloc16: str, parent_router_id: str, child_id: str) -> str:
+    child_id_value = parse_int(child_id)
+    if child_id_value is None or child_id_value < 0 or child_id_value > 0x3ff:
+        return ""
+
+    parent_rloc16_value = parse_rloc16(parent_rloc16)
+    if parent_rloc16_value is not None:
+        return f"{(parent_rloc16_value & 0xfc00) | child_id_value:04x}"
+
+    parent_router_id_value = parse_int(parent_router_id)
+    if parent_router_id_value is None or parent_router_id_value < 0 or parent_router_id_value > 0x3f:
+        return ""
+    return f"{(parent_router_id_value << 10) | child_id_value:04x}"
+
+
+def stable_device_key(ext_address: str, rloc16: str) -> str:
+    if ext_address:
+        return f"ext:{ext_address.lower()}"
+    if rloc16:
+        return f"rloc16:{rloc16.lower()}"
+    return "unknown"
+
+
+def stable_child_key(ext_address: str, rloc16: str, parent_router: str, child_id: str) -> str:
+    if ext_address:
+        return f"ext:{ext_address.lower()}"
+    if rloc16:
+        return f"rloc16:{rloc16.lower()}"
+    if parent_router or child_id:
+        return f"parent:{parent_router}:child:{child_id}"
+    return "unknown"
 
 
 def run_scan() -> dict[str, Any]:
@@ -254,13 +415,13 @@ def shortest_paths(router_ids: list[str], adjacency: dict[str, list[dict[str, in
 
 
 def set_topology_graph_metrics(routers: list[dict[str, Any]]) -> None:
-    router_by_id = {str(router.get("router_id", "")): router for router in routers}
+    router_by_id = {text_value(router.get("router_id")): router for router in routers}
     edge_by_key: dict[str, dict[str, Any]] = {}
 
     for router in routers:
-        source_id = str(router.get("router_id", ""))
+        source_id = text_value(router.get("router_id"))
         for neighbor in router.get("router_neighbors", []) or []:
-            target_id = str(neighbor.get("router_id", ""))
+            target_id = text_value(neighbor.get("router_id"))
             if target_id not in router_by_id:
                 continue
             key = "-".join(sorted([source_id, target_id]))
@@ -311,19 +472,41 @@ def set_topology_graph_metrics(routers: list[dict[str, Any]]) -> None:
         adjacency[edge["target"]].append({"to": edge["source"], "cost": edge["route_cost"]})
 
     leader = next((router for router in routers if router.get("leader") and str(router.get("status", "")) == "ok"), routers[0] if routers else None)
-    leader_costs = shortest_paths(router_ids, adjacency, str(leader.get("router_id", "")) if leader else None)
+    leader_costs = shortest_paths(router_ids, adjacency, text_value(leader.get("router_id")) if leader else None)
 
     for router in routers:
-        router_id = str(router.get("router_id", ""))
-        rloc16 = str(router.get("rloc16", ""))
-        ext_address = str(router.get("ext_address", ""))
+        router_id = text_value(router.get("router_id"))
+        rloc16 = optional_text(router.get("rloc16"))
+        ext_address = optional_text(router.get("ext_address"))
         labels = (router_id, rloc16, ext_address)
-        incident = [edge for edge in mesh_links if edge["source"] == router_id or edge["target"] == router_id]
-        weak_edges = [edge for edge in incident if edge["severity"] >= 3]
-        reliable_count = len([edge for edge in incident if edge["reliable"]])
-        weak_ratio = len(weak_edges) / len(incident) if incident else 1
+        own_reports = [
+            {
+                "from": router_id,
+                "to": text_value(neighbor.get("router_id")),
+                "link_quality": numeric_value(neighbor.get("link_quality")),
+                "link_margin": numeric_value(neighbor.get("link_margin")),
+                "average_rssi": numeric_value(neighbor.get("average_rssi")),
+            }
+            for neighbor in router.get("router_neighbors", []) or []
+        ]
+        weak_reports = [report for report in own_reports if report_severity(report) >= 3]
+        reliable_reports = []
+        for report in own_reports:
+            effective_lq = report["link_quality"] if report["link_quality"] is not None else link_quality_from_margin(report["link_margin"])
+            route_cost = cost_for_link_quality(effective_lq)
+            if route_cost is not None and route_cost <= 2 and (report["link_margin"] is None or report["link_margin"] >= 10):
+                reliable_reports.append(report)
+        reliable_count = len(reliable_reports)
+        weak_ratio = len(weak_reports) / len(own_reports) if own_reports else 1
         leader_cost = leader_costs.get(router_id, float("inf"))
-        data_incomplete = str(router.get("child_table_status", "unknown")) != "ok" or str(router.get("router_neighbor_table_status", "unknown")) != "ok"
+        neighbor_table_status = str(router.get("router_neighbor_table_status", "unknown"))
+        has_own_route = any(
+            cost_for_link_quality(
+                report["link_quality"] if report["link_quality"] is not None else link_quality_from_margin(report["link_margin"])
+            ) is not None
+            for report in own_reports
+        )
+        data_incomplete = neighbor_table_status != "ok" and not has_own_route
 
         if data_incomplete:
             status = "data_incomplete"
@@ -372,9 +555,9 @@ def set_metrics(payload: dict[str, Any]) -> None:
     expected_child_count.set(EXPECTED_CHILD_COUNT)
 
     for router in routers:
-        router_id = str(router.get("router_id", ""))
-        rloc16 = str(router.get("rloc16", ""))
-        ext_address = str(router.get("ext_address", ""))
+        router_id = text_value(router.get("router_id"))
+        rloc16 = optional_text(router.get("rloc16"))
+        ext_address = stable_ext_address(router_ext_address_by_rloc16, rloc16, optional_text(router.get("ext_address")))
         status = str(router.get("status", "unknown"))
         if status == "ok":
             ok_total += 1
@@ -386,9 +569,8 @@ def set_metrics(payload: dict[str, Any]) -> None:
         stored_children_total += stored_child_total
 
         router_present.labels(router_id, rloc16, ext_address, status).set(1)
-        entry = names.get(ext_address.lower()) or names.get(rloc16.lower())
-        if entry:
-            device_name.labels(ext_address, rloc16, entry["name"], entry["location"], "router").set(device_name_timestamp)
+        entry = display_entry(names, ext_address, rloc16, f"Router {router_id}")
+        device_name.labels(stable_device_key(ext_address, rloc16), ext_address, rloc16, entry["name"], entry["location"], "router").set(device_name_timestamp)
         router_responded.labels(router_id, rloc16, ext_address).set(1 if router.get("responded") else 0)
         router_role.labels(router_id, rloc16, ext_address, "leader").set(1 if router.get("leader") else 0)
         router_role.labels(router_id, rloc16, ext_address, "border_router").set(1 if router.get("border_router") else 0)
@@ -423,9 +605,11 @@ def set_metrics(payload: dict[str, Any]) -> None:
             router_lq_count.labels(router_id, rloc16, ext_address, quality).set(int(lq_counts.get(quality, 0) or 0))
 
         for neighbor in router.get("router_neighbors", []) or []:
-            target = str(neighbor.get("router_id", ""))
-            target_rloc16 = str(neighbor.get("rloc16", ""))
-            target_ext_address = str(neighbor.get("ext_address", ""))
+            target = text_value(neighbor.get("router_id"))
+            target_rloc16 = optional_text(neighbor.get("rloc16"))
+            target_ext_address = stable_ext_address(router_ext_address_by_rloc16, target_rloc16, optional_text(neighbor.get("ext_address")))
+            target_entry = display_entry(names, target_ext_address, target_rloc16, f"Router {target}")
+            device_name.labels(stable_device_key(target_ext_address, target_rloc16), target_ext_address, target_rloc16, target_entry["name"], target_entry["location"], "router").set(device_name_timestamp)
             labels = (router_id, target, target_rloc16, target_ext_address)
             for field in [
                 "link_quality",
@@ -449,16 +633,16 @@ def set_metrics(payload: dict[str, Any]) -> None:
             set_optional_metric(router_neighbor_message_error_rate, neighbor.get("message_error_rate"), *labels)
 
         for child in children:
-            child_id = str(child.get("child_id", ""))
-            child_rloc16 = str(child.get("rloc16", ""))
-            child_ext_address = str(child.get("ext_address", ""))
-            name_entry = names.get(child_ext_address.lower()) or names.get(child_rloc16.lower())
-            child_present.labels(router_id, child_id, child_rloc16, child_ext_address).set(1)
-            set_optional_metric(child_parent_router, router_id, child_id, child_rloc16, child_ext_address)
-            child_parent_info.labels(child_id, child_rloc16, child_ext_address, router_id, rloc16, ext_address).set(1)
-            if name_entry:
-                device_name.labels(child_ext_address, child_rloc16, name_entry["name"], name_entry["location"], "child").set(device_name_timestamp)
-            child_labels = (router_id, child_id, child_rloc16, child_ext_address)
+            child_id = text_value(child.get("child_id"))
+            child_rloc16 = optional_text(child.get("rloc16")) or derive_child_rloc16(rloc16, router_id, child_id)
+            child_ext_address = stable_ext_address(child_ext_address_by_rloc16, child_rloc16, optional_text(child.get("ext_address")))
+            child_key = stable_child_key(child_ext_address, child_rloc16, router_id, child_id)
+            name_entry = display_entry(names, child_ext_address, child_rloc16, f"Child {child_id}")
+            child_present.labels(child_key, router_id, child_id, child_rloc16, child_ext_address).set(1)
+            set_optional_metric(child_parent_router, router_id, child_key, child_id, child_rloc16, child_ext_address)
+            child_parent_info.labels(child_key, child_id, child_rloc16, child_ext_address, router_id, rloc16, ext_address).set(1)
+            device_name.labels(child_key, child_ext_address, child_rloc16, name_entry["name"], name_entry["location"], "child").set(device_name_timestamp)
+            child_metric_labels = (child_key, router_id, child_id, child_rloc16, child_ext_address)
             for field in [
                 "link_quality",
                 "timeout",
@@ -472,23 +656,23 @@ def set_metrics(payload: dict[str, Any]) -> None:
                 "frame_error_rate",
                 "message_error_rate",
             ]:
-                child_diagnostic_present.labels(*child_labels, field).set(1 if field in child and child.get(field) is not None else 0)
-            set_optional_metric(child_link_quality, child.get("link_quality"), *child_labels)
-            set_optional_metric(child_timeout, child.get("timeout"), *child_labels)
-            set_optional_metric(child_age, child.get("age"), *child_labels)
-            set_optional_metric(child_connection_time, child.get("connection_time"), *child_labels)
-            set_optional_metric(child_link_margin, child.get("link_margin"), *child_labels)
-            set_optional_metric(child_average_rssi, child.get("average_rssi"), *child_labels)
-            set_optional_metric(child_last_rssi, child.get("last_rssi"), *child_labels)
-            set_optional_metric(child_queued_messages, child.get("queued_message_count"), *child_labels)
+                child_diagnostic_present.labels(*child_metric_labels, field).set(1 if field in child and child.get(field) is not None else 0)
+            set_optional_metric(child_link_quality, child.get("link_quality"), *child_metric_labels)
+            set_optional_metric(child_timeout, child.get("timeout"), *child_metric_labels)
+            set_optional_metric(child_age, child.get("age"), *child_metric_labels)
+            set_optional_metric(child_connection_time, child.get("connection_time"), *child_metric_labels)
+            set_optional_metric(child_link_margin, child.get("link_margin"), *child_metric_labels)
+            set_optional_metric(child_average_rssi, child.get("average_rssi"), *child_metric_labels)
+            set_optional_metric(child_last_rssi, child.get("last_rssi"), *child_metric_labels)
+            set_optional_metric(child_queued_messages, child.get("queued_message_count"), *child_metric_labels)
             if "supports_error_rate" in child and child.get("supports_error_rate") is not None:
-                child_error_rate_supported.labels(*child_labels).set(1 if child.get("supports_error_rate") else 0)
-            set_optional_metric(child_frame_error_rate, child.get("frame_error_rate"), *child_labels)
-            set_optional_metric(child_message_error_rate, child.get("message_error_rate"), *child_labels)
+                child_error_rate_supported.labels(*child_metric_labels).set(1 if child.get("supports_error_rate") else 0)
+            set_optional_metric(child_frame_error_rate, child.get("frame_error_rate"), *child_metric_labels)
+            set_optional_metric(child_message_error_rate, child.get("message_error_rate"), *child_metric_labels)
             mode = child.get("mode", {}) or {}
-            child_mode.labels(router_id, child_id, child_rloc16, child_ext_address, "rx_on_when_idle").set(1 if mode.get("rx_on_when_idle") else 0)
-            child_mode.labels(router_id, child_id, child_rloc16, child_ext_address, "full_thread_device").set(1 if mode.get("full_thread_device") else 0)
-            child_mode.labels(router_id, child_id, child_rloc16, child_ext_address, "full_network_data").set(1 if mode.get("full_network_data") else 0)
+            child_mode.labels(*child_metric_labels, "rx_on_when_idle").set(1 if mode.get("rx_on_when_idle") else 0)
+            child_mode.labels(*child_metric_labels, "full_thread_device").set(1 if mode.get("full_thread_device") else 0)
+            child_mode.labels(*child_metric_labels, "full_network_data").set(1 if mode.get("full_network_data") else 0)
 
     set_topology_graph_metrics(routers)
     router_ok_count.set(ok_total)
@@ -497,6 +681,7 @@ def set_metrics(payload: dict[str, Any]) -> None:
     stored_child_count.set(stored_children_total)
     up.set(1)
     last_success.set(time.time())
+    save_device_cache_if_dirty()
     with payload_lock:
         latest_payload.clear()
         latest_payload.update(payload)
@@ -553,6 +738,7 @@ class ExporterHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     logger.info("starting exporter on :%s for %s", EXPORTER_PORT, WROOM_BASE_URL)
+    load_device_cache()
     logger.info(
         "scan_on_collect=%s scan_interval_seconds=%s error_retry_interval_seconds=%s http_timeout_seconds=%s",
         SCAN_ON_COLLECT,

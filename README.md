@@ -63,6 +63,7 @@ Common settings:
 | `HTTP_TIMEOUT_SECONDS` | `5` | HTTP request timeout |
 | `SCAN_ON_COLLECT` | `true` | Trigger scan collection from the exporter loop |
 | `EXPECTED_CHILD_COUNT` | `7` in Docker Compose | Baseline for missing child alerts |
+| `DEVICE_CACHE_PATH` | `/data/device-cache.json` in Docker Compose | Persistent router/child `rloc16` to extended-address cache |
 | `LOG_LEVEL` | `INFO` | Exporter logging level |
 | `GRAFANA_ADMIN_USER` | `admin` | Grafana admin username |
 | `GRAFANA_ADMIN_PASSWORD` | `admin` | Grafana admin password |
@@ -108,7 +109,18 @@ when no extended-address entry matches.
 ```
 
 The topology page uses this map for router and child labels. The exporter also
-publishes it through the `thread_device_name` metric.
+publishes it through the `thread_device_name` metric. Devices that are not in
+the map still get a generated display entry such as `Router 12` or `Child 3`
+with location `Unknown`, so Grafana panels can show them while keeping mapped
+names when available. Child metrics include a `child_key` label for stable
+dashboard series: it uses `ext:<address>` when an extended address is known and
+falls back to `rloc16:<rloc16>` otherwise. If a child omits `rloc16`, the
+exporter derives it from the parent router prefix and `child_id` when possible.
+If both address and derived `rloc16` are unavailable, it falls back to
+`parent:<router_id>:child:<child_id>`. If a later scan omits a known extended
+address for the same `rloc16`, the exporter reuses the last observed address.
+Docker Compose stores this cache in the `exporter-data` volume, so it survives
+exporter rebuilds and restarts.
 
 ## Topology View
 
@@ -157,14 +169,14 @@ Child metrics include parent mapping, link quality, timeout/age, RSSI, queued
 messages, mode flags, and optional error rates:
 
 ```text
-thread_child_parent_info{child_id,child_rloc16,child_ext_address,parent_router,parent_rloc16,parent_ext_address}
-thread_child_link_quality{parent_router,child_id,child_rloc16,child_ext_address}
-thread_child_link_margin_db{parent_router,child_id,child_rloc16,child_ext_address}
-thread_child_average_rssi_dbm{parent_router,child_id,child_rloc16,child_ext_address}
-thread_child_timeout_seconds{parent_router,child_id,child_rloc16,child_ext_address}
-thread_child_age_seconds{parent_router,child_id,child_rloc16,child_ext_address}
-thread_child_queued_messages{parent_router,child_id,child_rloc16,child_ext_address}
-thread_child_mode{parent_router,child_id,child_rloc16,child_ext_address,flag}
+thread_child_parent_info{child_key,child_id,child_rloc16,child_ext_address,parent_router,parent_rloc16,parent_ext_address}
+thread_child_link_quality{child_key,parent_router,child_id,child_rloc16,child_ext_address}
+thread_child_link_margin_db{child_key,parent_router,child_id,child_rloc16,child_ext_address}
+thread_child_average_rssi_dbm{child_key,parent_router,child_id,child_rloc16,child_ext_address}
+thread_child_timeout_seconds{child_key,parent_router,child_id,child_rloc16,child_ext_address}
+thread_child_age_seconds{child_key,parent_router,child_id,child_rloc16,child_ext_address}
+thread_child_queued_messages{child_key,parent_router,child_id,child_rloc16,child_ext_address}
+thread_child_mode{child_key,parent_router,child_id,child_rloc16,child_ext_address,flag}
 ```
 
 Optional diagnostic fields are exported only when the JSON includes them. Use

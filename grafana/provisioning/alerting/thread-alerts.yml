@@ -354,7 +354,7 @@ groups:
               to: 0
             datasourceUid: Prometheus
             model:
-              expr: clamp_max((((thread_child_link_margin_db > bool 0) * (thread_child_link_margin_db <= bool 12)) or (0 * thread_child_present)) + ((thread_child_average_rssi_dbm <= bool -100) or (0 * thread_child_present)), 1) * on(child_ext_address) group_left(name, location) (0 * topk by (child_ext_address) (1, label_replace(thread_device_name{kind="child"}, "child_ext_address", "$1", "ext_address", "(.*)")) + 1)
+              expr: clamp_max((((thread_child_link_margin_db > bool 0) * (thread_child_link_margin_db <= bool 12)) or (0 * thread_child_present)) + ((thread_child_average_rssi_dbm <= bool -100) or (0 * thread_child_present)), 1) * on(child_key) group_left(name, location) (0 * topk by (child_key) (1, label_replace(thread_device_name{kind="child"}, "child_key", "$1", "device_key", "(.*)")) + 1)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A

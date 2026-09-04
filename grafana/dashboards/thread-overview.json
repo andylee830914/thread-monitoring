@@ -336,7 +336,7 @@
       },
       "targets": [
         {
-          "expr": "((thread_router_neighbor_link_margin_db * on(source_router) group_left(source_ext_address) label_replace(label_replace(thread_router_present, \"source_router\", \"$1\", \"router_id\", \"(.*)\"), \"source_ext_address\", \"$1\", \"ext_address\", \"(.*)\")) * on(source_ext_address) group_left(source_name,source_location) (0 * topk by (source_ext_address) (1, label_replace(label_replace(label_replace(thread_device_name{kind=\"router\"}, \"source_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"source_name\", \"$1\", \"name\", \"(.*)\"), \"source_location\", \"$1\", \"location\", \"(.*)\")) + 1)) * on(target_ext_address) group_left(target_name,target_location) (0 * topk by (target_ext_address) (1, label_replace(label_replace(label_replace(thread_device_name{kind=\"router\"}, \"target_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"target_name\", \"$1\", \"name\", \"(.*)\"), \"target_location\", \"$1\", \"location\", \"(.*)\")) + 1)",
+          "expr": "((thread_router_neighbor_link_margin_db * on(source_router) group_left(source_ext_address,source_rloc16) max by (source_router, source_ext_address, source_rloc16) (label_replace(label_replace(label_replace(thread_router_present, \"source_router\", \"$1\", \"router_id\", \"(.*)\"), \"source_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"source_rloc16\", \"$1\", \"rloc16\", \"(.*)\"))) * on(source_ext_address,source_rloc16) group_left(source_name,source_location) (0 * topk by (source_ext_address,source_rloc16) (1, label_replace(label_replace(label_replace(label_replace(thread_device_name{kind=\"router\"}, \"source_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"source_rloc16\", \"$1\", \"rloc16\", \"(.*)\"), \"source_name\", \"$1\", \"name\", \"(.*)\"), \"source_location\", \"$1\", \"location\", \"(.*)\")) + 1)) * on(target_ext_address,target_rloc16) group_left(target_name,target_location) (0 * topk by (target_ext_address,target_rloc16) (1, label_replace(label_replace(label_replace(label_replace(thread_device_name{kind=\"router\"}, \"target_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"target_rloc16\", \"$1\", \"rloc16\", \"(.*)\"), \"target_name\", \"$1\", \"name\", \"(.*)\"), \"target_location\", \"$1\", \"location\", \"(.*)\")) + 1)",
           "legendFormat": "{{source_name}} ({{source_location}}) -> {{target_name}} ({{target_location}})",
           "refId": "A"
         }
@@ -385,8 +385,8 @@
       },
       "targets": [
         {
-          "expr": "max by (child_ext_address,name,location) (thread_child_link_margin_db * on(child_ext_address) group_left(name,location) (0 * topk by (child_ext_address) (1, label_replace(thread_device_name{kind=\"child\"}, \"child_ext_address\", \"$1\", \"ext_address\", \"(.*)\")) + 1))",
-          "legendFormat": "{{name}} ({{location}}) {{child_ext_address}}",
+          "expr": "max by (child_key,name,location) (thread_child_link_margin_db * on(child_key) group_left(name,location) (0 * topk by (child_key) (1, label_replace(thread_device_name{kind=\"child\"}, \"child_key\", \"$1\", \"device_key\", \"(.*)\")) + 1))",
+          "legendFormat": "{{name}} ({{location}}) {{child_key}}",
           "refId": "A"
         }
       ],
@@ -411,7 +411,7 @@
       "pluginVersion": "11.0.0",
       "targets": [
         {
-          "expr": "thread_router_graph_health_info * on(ext_address) group_left(name,location) (0 * topk by (ext_address) (1, thread_device_name{kind=\"router\"}) + 1)",
+          "expr": "thread_router_graph_health_info * on(ext_address,rloc16) group_left(name,location) (0 * topk by (ext_address,rloc16) (1, thread_device_name{kind=\"router\"}) + 1)",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -487,7 +487,7 @@
       "pluginVersion": "11.0.0",
       "targets": [
         {
-          "expr": "((thread_child_link_margin_db * on(child_ext_address) group_left(child_name,child_location) (0 * topk by (child_ext_address) (1, label_replace(label_replace(label_replace(thread_device_name{kind=\"child\"}, \"child_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"child_name\", \"$1\", \"name\", \"(.*)\"), \"child_location\", \"$1\", \"location\", \"(.*)\")) + 1)) * on(parent_router) group_left(parent_ext_address) label_replace(label_replace(thread_router_present, \"parent_router\", \"$1\", \"router_id\", \"(.*)\"), \"parent_ext_address\", \"$1\", \"ext_address\", \"(.*)\")) * on(parent_ext_address) group_left(parent_name,parent_location) (0 * topk by (parent_ext_address) (1, label_replace(label_replace(label_replace(thread_device_name{kind=\"router\"}, \"parent_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"parent_name\", \"$1\", \"name\", \"(.*)\"), \"parent_location\", \"$1\", \"location\", \"(.*)\")) + 1)",
+          "expr": "((thread_child_link_margin_db * on(child_key) group_left(child_name,child_location) (0 * topk by (child_key) (1, label_replace(label_replace(label_replace(thread_device_name{kind=\"child\"}, \"child_key\", \"$1\", \"device_key\", \"(.*)\"), \"child_name\", \"$1\", \"name\", \"(.*)\"), \"child_location\", \"$1\", \"location\", \"(.*)\")) + 1)) * on(parent_router) group_left(parent_ext_address,parent_rloc16) max by (parent_router, parent_ext_address, parent_rloc16) (label_replace(label_replace(label_replace(thread_router_present, \"parent_router\", \"$1\", \"router_id\", \"(.*)\"), \"parent_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"parent_rloc16\", \"$1\", \"rloc16\", \"(.*)\"))) * on(parent_ext_address,parent_rloc16) group_left(parent_name,parent_location) (0 * topk by (parent_ext_address,parent_rloc16) (1, label_replace(label_replace(label_replace(label_replace(thread_device_name{kind=\"router\"}, \"parent_ext_address\", \"$1\", \"ext_address\", \"(.*)\"), \"parent_rloc16\", \"$1\", \"rloc16\", \"(.*)\"), \"parent_name\", \"$1\", \"name\", \"(.*)\"), \"parent_location\", \"$1\", \"location\", \"(.*)\")) + 1)",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -582,8 +582,8 @@
       },
       "targets": [
         {
-          "expr": "max by (child_ext_address,name,location) (thread_child_parent_router * on(child_ext_address) group_left(name,location) (0 * topk by (child_ext_address) (1, label_replace(thread_device_name{kind=\"child\"}, \"child_ext_address\", \"$1\", \"ext_address\", \"(.*)\")) + 1))",
-          "legendFormat": "{{name}} ({{location}}) {{child_ext_address}}",
+          "expr": "max by (child_key,name,location) (thread_child_parent_router * on(child_key) group_left(name,location) (0 * topk by (child_key) (1, label_replace(thread_device_name{kind=\"child\"}, \"child_key\", \"$1\", \"device_key\", \"(.*)\")) + 1))",
+          "legendFormat": "{{name}} ({{location}}) {{child_key}}",
           "refId": "A"
         }
       ],

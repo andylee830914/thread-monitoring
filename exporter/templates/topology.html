@@ -211,7 +211,12 @@
       return null;
     };
     const effectiveLinkQuality = (report) => report.linkQuality ?? linkQualityFromMargin(report.linkMargin);
-    const routerSignalLabel = (router) => router.dataIncomplete ? "Data Incomplete" : router.signalStatus;
+    const routeCostForReport = (report) => costForLinkQuality(effectiveLinkQuality(report));
+    const reportIsReliable = (report) => {
+      const routeCost = routeCostForReport(report);
+      return routeCost != null && routeCost <= 2 && (report.linkMargin == null || report.linkMargin >= 10);
+    };
+    const routerSignalLabel = (router) => router.signalStatus;
     let layoutMode = "location";
     let latestBody = null;
 
@@ -351,12 +356,21 @@
       const leaderRouter = routers.find((router) => router.leader && router.status === "ok") || routers[0];
       const leaderCosts = shortestPathsFrom(leaderRouter && leaderRouter.id);
       for (const router of routers) {
-        const incident = meshLinks.filter((edge) => edge.source.id === router.id || edge.target.id === router.id);
-        const weakEdges = incident.filter((edge) => edge.severity >= 3).length;
-        router.reliableNeighborCount = incident.filter((edge) => edge.reliable).length;
-        router.weakEdgeRatio = incident.length ? weakEdges / incident.length : 1;
+        const ownReports = router.neighbors.map((neighbor) => ({
+          from: router.id,
+          to: neighbor.router_id,
+          linkQuality: numOrNull(neighbor.link_quality),
+          linkMargin: numOrNull(neighbor.link_margin),
+          averageRssi: numOrNull(neighbor.average_rssi),
+          lastRssi: numOrNull(neighbor.last_rssi),
+          frameErrorRate: numOrNull(neighbor.frame_error_rate),
+          messageErrorRate: numOrNull(neighbor.message_error_rate)
+        }));
+        const weakReports = ownReports.filter((report) => reportSeverity(report) >= 3).length;
+        router.reliableNeighborCount = ownReports.filter(reportIsReliable).length;
+        router.weakEdgeRatio = ownReports.length ? weakReports / ownReports.length : 1;
         router.leaderRouteCost = leaderCosts.get(router.id);
-        router.dataIncomplete = router.childTableStatus !== "ok" || router.routerNeighborTableStatus !== "ok";
+        router.dataIncomplete = router.routerNeighborTableStatus !== "ok" && !ownReports.some((report) => routeCostForReport(report) != null);
         if (router.dataIncomplete) {
           router.signalStatus = "Data Incomplete";
           router.signalSeverity = 3;
@@ -404,17 +418,22 @@
       const margin = { top: 48, right: 34, bottom: 64, left: 34 };
       svg.attr("viewBox", `0 0 ${width} ${height}`);
 
-      const locationOrder = ["1F", "2F", "3F", "4F"];
+      const locationKey = (node) => {
+        const location = (node.info && node.info.location || "").trim();
+        return !location || location.toLowerCase() === "unknown" ? "Unknown" : location;
+      };
+      const hasUnknownLocation = [...routers, ...childNodes].some((node) => locationKey(node) === "Unknown");
+      const locationOrder = ["1F", "2F", "3F", "4F", ...(hasUnknownLocation ? ["Unknown"] : [])];
       const signalOrder = ["Data Incomplete", "Weak", "Watch", "OK"];
       const bandValues = layoutMode === "location" ? locationOrder : signalOrder;
       const bandGap = (height - margin.top - margin.bottom) / bandValues.length;
       const bandLabels = layoutMode === "location"
-        ? new Map(locationOrder.map((item) => [item, item]))
+        ? new Map(locationOrder.map((item) => [item, item === "Unknown" ? "unknown" : item]))
         : new Map(signalOrder.map((item) => [item, item]));
       const bandIndex = new Map(bandValues.map((item, index) => [item, index]));
       const routerRole = (router) => router.leader ? "Leader" : (router.borderRouter ? "Border Router" : "Router");
       const groupKey = (router) => {
-        if (layoutMode === "location") return (router.info && router.info.location) || "Unknown";
+        if (layoutMode === "location") return locationKey(router);
         return routerSignalLabel(router);
       };
       const groups = d3.group(routers, groupKey);
@@ -429,7 +448,7 @@
       }
       if (layoutMode === "location") {
         // In location mode, distribute children across their own floor level, below routers
-        const childGroups = d3.group(childNodes, (child) => (child.info && child.info.location) || "Unknown");
+        const childGroups = d3.group(childNodes, locationKey);
         for (const [groupValue, group] of childGroups) {
           const idx = bandIndex.has(groupValue) ? bandIndex.get(groupValue) : bandValues.length - 1;
           const y = margin.top + idx * bandGap + 62;

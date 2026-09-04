@@ -3,7 +3,7 @@ services:
     build:
       context: ./exporter
     environment:
-      WROOM_BASE_URL: ${WROOM_BASE_URL:-http://192.168.2.153}
+      WROOM_BASE_URL: ${WROOM_BASE_URL:-http://192.168.2.158:8080}
       EXPORTER_PORT: 9108
       SCAN_INTERVAL_SECONDS: ${SCAN_INTERVAL_SECONDS:-60}
       ERROR_RETRY_INTERVAL_SECONDS: ${ERROR_RETRY_INTERVAL_SECONDS:-15}
@@ -11,11 +11,13 @@ services:
       SCAN_TIMEOUT_SECONDS: ${SCAN_TIMEOUT_SECONDS:-30}
       HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS:-5}
       SCAN_ON_COLLECT: ${SCAN_ON_COLLECT:-true}
-      EXPECTED_CHILD_COUNT: ${EXPECTED_CHILD_COUNT:-7}
+      EXPECTED_CHILD_COUNT: ${EXPECTED_CHILD_COUNT:-8}
       DEVICE_MAP_PATH: /config/device-map.json
+      DEVICE_CACHE_PATH: ${DEVICE_CACHE_PATH:-/data/device-cache.json}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - ./config/device-map.json:/config/device-map.json:ro
+      - exporter-data:/data
     ports:
       - "9108:9108"
     restart: unless-stopped
@@ -54,5 +56,6 @@ services:
     restart: unless-stopped
 
 volumes:
+  exporter-data:
   prometheus-data:
   grafana-data:
