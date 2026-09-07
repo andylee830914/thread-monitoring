@@ -1,11 +1,13 @@
 import logging
 import os
 import json
+import re
 import time
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, unquote, urlparse
 
 import requests
 from prometheus_client import CONTENT_TYPE_LATEST, Gauge, Info, generate_latest
@@ -32,6 +34,7 @@ latest_error = ""
 payload_lock = threading.Lock()
 child_ext_address_by_rloc16: dict[str, str] = {}
 router_ext_address_by_rloc16: dict[str, str] = {}
+device_detail_by_rloc16: dict[str, dict[str, Any]] = {}
 device_cache_lock = threading.Lock()
 device_cache_dirty = False
 
@@ -96,6 +99,33 @@ def get_json(path: str) -> dict[str, Any]:
     return response.json()
 
 
+def get_device_json(device_id: str) -> dict[str, Any]:
+    return get_json(f"/device/{quote(device_id, safe='')}")
+
+
+def get_ping_json(target: str) -> dict[str, Any]:
+    ping_target = quote(target, safe=":")
+    return get_json(f"/ping/{ping_target}")
+
+
+def normalize_device_id(device_id: str) -> str:
+    text = optional_text(device_id).lower()
+    return text[2:] if text.startswith("0x") else text
+
+
+def rloc16_api_id(device_id: str) -> str:
+    key = normalize_device_id(device_id)
+    if not key or not re.fullmatch(r"[0-9a-f]{1,4}", key):
+        raise ValueError("invalid rloc16")
+    return f"0x{key.zfill(4)}"
+
+
+def ping_device_rloc(device_id: str) -> dict[str, Any]:
+    device_rloc = rloc16_api_id(device_id)
+    result = get_ping_json(device_rloc)
+    return {"device_id": device_id, "target": device_rloc, "ping": result}
+
+
 def load_device_map() -> dict[str, dict[str, str]]:
     if not DEVICE_MAP_PATH:
         return {}
@@ -158,6 +188,49 @@ def normalize_cache(value: Any) -> dict[str, str]:
     return normalized
 
 
+def normalize_device_detail_cache(value: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict):
+        return {}
+    normalized = {}
+    for device_id, entry in value.items():
+        key = normalize_device_id(str(device_id))
+        if not key or not isinstance(entry, dict) or not isinstance(entry.get("data"), dict):
+            continue
+        normalized[key] = {
+            "data": entry["data"],
+            "updated_at": int_value(entry.get("updated_at"), 0),
+        }
+    return normalized
+
+
+def cache_device_detail(device_id: str, device: dict[str, Any]) -> dict[str, Any]:
+    global device_cache_dirty
+    key = normalize_device_id(device_id)
+    if not key:
+        raise ValueError("missing device id")
+    entry = {"data": device, "updated_at": int(time.time())}
+    with device_cache_lock:
+        device_detail_by_rloc16[key] = entry
+        device_cache_dirty = True
+    return entry
+
+
+def cached_device_detail(device_id: str) -> dict[str, Any]:
+    key = normalize_device_id(device_id)
+    with device_cache_lock:
+        entry = device_detail_by_rloc16.get(key)
+    if not entry:
+        raise ValueError("device detail is not cached")
+    return entry
+
+
+def refresh_device_detail(device_id: str) -> dict[str, Any]:
+    device = get_device_json(device_id)
+    entry = cache_device_detail(device_id, device)
+    save_device_cache_if_dirty()
+    return entry
+
+
 def load_device_cache() -> None:
     if not DEVICE_CACHE_PATH:
         return
@@ -178,6 +251,7 @@ def load_device_cache() -> None:
     with device_cache_lock:
         child_ext_address_by_rloc16.update(normalize_cache(raw.get("children")))
         router_ext_address_by_rloc16.update(normalize_cache(raw.get("routers")))
+        device_detail_by_rloc16.update(normalize_device_detail_cache(raw.get("devices")))
 
 
 def save_device_cache_if_dirty() -> None:
@@ -189,6 +263,7 @@ def save_device_cache_if_dirty() -> None:
             return
         payload = {
             "children": dict(sorted(child_ext_address_by_rloc16.items())),
+            "devices": dict(sorted(device_detail_by_rloc16.items())),
             "routers": dict(sorted(router_ext_address_by_rloc16.items())),
             "updated_at": int(time.time()),
         }
@@ -694,7 +769,9 @@ def topology_page() -> str:
 
 class ExporterHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        if self.path == "/metrics":
+        parsed_path = urlparse(self.path).path
+
+        if parsed_path == "/metrics":
             body = generate_latest()
             self.send_response(200)
             self.send_header("Content-Type", CONTENT_TYPE_LATEST)
@@ -703,7 +780,7 @@ class ExporterHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if self.path == "/topology.json":
+        if parsed_path == "/topology.json":
             with payload_lock:
                 body = json.dumps({
                     "payload": latest_payload,
@@ -720,7 +797,85 @@ class ExporterHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if self.path in {"/", "/topology"}:
+        if parsed_path.startswith("/device/") and parsed_path.endswith("/ping"):
+            device_id = unquote(parsed_path.removeprefix("/device/").removesuffix("/ping")).strip("/")
+            if not device_id:
+                body = json.dumps({"error": "missing device id"}).encode("utf-8")
+                self.send_response(400)
+            else:
+                try:
+                    body = json.dumps(ping_device_rloc(device_id)).encode("utf-8")
+                    self.send_response(200)
+                except ValueError as exc:
+                    body = json.dumps({"error": str(exc)}).encode("utf-8")
+                    self.send_response(400)
+                except Exception as exc:
+                    logger.exception("failed to ping device rloc: %s", device_id)
+                    body = json.dumps({"error": f"{type(exc).__name__}: {exc}"}).encode("utf-8")
+                    self.send_response(502)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed_path.startswith("/device/") and parsed_path.endswith("/refresh"):
+            device_id = unquote(parsed_path.removeprefix("/device/").removesuffix("/refresh")).strip("/")
+            if not device_id:
+                body = json.dumps({"error": "missing device id"}).encode("utf-8")
+                self.send_response(400)
+            else:
+                try:
+                    entry = refresh_device_detail(device_id)
+                    body = json.dumps({
+                        "device_id": device_id,
+                        "cached": False,
+                        "updated_at": entry["updated_at"],
+                        "device": entry["data"],
+                    }).encode("utf-8")
+                    self.send_response(200)
+                except Exception as exc:
+                    logger.exception("failed to refresh device detail: %s", device_id)
+                    body = json.dumps({"error": f"{type(exc).__name__}: {exc}"}).encode("utf-8")
+                    self.send_response(502)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed_path.startswith("/device/"):
+            device_id = unquote(parsed_path.removeprefix("/device/")).strip()
+            if not device_id:
+                body = json.dumps({"error": "missing device id"}).encode("utf-8")
+                self.send_response(400)
+            else:
+                try:
+                    entry = cached_device_detail(device_id)
+                    body = json.dumps({
+                        "device_id": device_id,
+                        "cached": True,
+                        "updated_at": entry["updated_at"],
+                        "device": entry["data"],
+                    }).encode("utf-8")
+                    self.send_response(200)
+                except ValueError as exc:
+                    body = json.dumps({"error": str(exc)}).encode("utf-8")
+                    self.send_response(404)
+                except Exception as exc:
+                    logger.exception("failed to fetch cached device detail: %s", device_id)
+                    body = json.dumps({"error": f"{type(exc).__name__}: {exc}"}).encode("utf-8")
+                    self.send_response(502)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed_path in {"/", "/topology"}:
             body = topology_page().encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")

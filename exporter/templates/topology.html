@@ -93,8 +93,14 @@
     .graph {
       border: 1px solid var(--border);
       border-radius: 8px;
+      flex: 1 1 680px;
       min-height: 720px;
       overflow: hidden;
+    }
+    .topology {
+      align-items: stretch;
+      display: flex;
+      gap: 12px;
     }
     svg { display: block; height: 720px; width: 100%; }
     .band-line { stroke: var(--border); stroke-width: 1; }
@@ -136,13 +142,129 @@
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 8px;
+      display: none;
+      flex: 0 0 360px;
+      max-height: 720px;
+      min-height: 44px;
+      overflow: auto;
+      padding: 12px;
+    }
+    .detail.open { display: block; }
+    .selection-detail {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: none;
       margin-top: 10px;
       min-height: 44px;
       padding: 10px 12px;
     }
+    .selection-detail.open { display: block; }
+    .detail h2, .selection-detail h2 {
+      font-size: 16px;
+      font-weight: 650;
+      margin: 0 0 4px;
+    }
+    .detail-head {
+      align-items: start;
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+    }
+    .detail-head button {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--fg);
+      cursor: pointer;
+      font: inherit;
+      padding: 6px 9px;
+      white-space: nowrap;
+    }
+    .detail-head button:disabled {
+      cursor: wait;
+      opacity: 0.56;
+    }
+    .detail-section {
+      border-top: 1px solid var(--border);
+      margin-top: 10px;
+      padding-top: 10px;
+    }
+    .detail-section:first-child {
+      border-top: 0;
+      margin-top: 0;
+      padding-top: 0;
+    }
+    .kv {
+      display: grid;
+      gap: 6px 10px;
+      grid-template-columns: minmax(92px, auto) 1fr;
+      margin-top: 8px;
+    }
+    .kv dt {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .kv dd {
+      font-size: 13px;
+      margin: 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .compact-table {
+      border-collapse: collapse;
+      margin-top: 8px;
+      width: 100%;
+    }
+    .compact-table th, .compact-table td {
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      padding: 5px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .compact-table th {
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .ping-action {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+    .ping-target {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .ping-action button {
+      background: var(--router);
+      border: 0;
+      border-radius: 6px;
+      color: white;
+      cursor: pointer;
+      font: inherit;
+      padding: 7px 10px;
+      white-space: nowrap;
+    }
+    .ping-action button:disabled {
+      cursor: not-allowed;
+      opacity: 0.48;
+    }
+    .ping-result {
+      font-size: 12px;
+      margin-top: 8px;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
     @media (max-width: 760px) {
       body { padding: 10px; }
       .stats { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .topology { flex-direction: column; }
+      .detail { flex-basis: auto; max-height: none; }
       .graph { min-height: 640px; }
       svg { height: 640px; }
     }
@@ -175,15 +297,20 @@
       <button type="button" data-layout="signal">Signal</button>
     </div>
   </div>
-  <main class="graph"><svg aria-label="Thread topology"></svg></main>
-  <div class="detail" id="detail">Select a router, child, or link.</div>
+  <section class="topology">
+    <main class="graph"><svg aria-label="Thread topology"></svg></main>
+    <aside class="detail" id="detail" aria-live="polite"></aside>
+  </section>
+  <div class="selection-detail" id="selection-detail"></div>
   <script>
     const svg = d3.select("svg");
     const detail = document.getElementById("detail");
+    const selectionDetail = document.getElementById("selection-detail");
     const color = (lq) => lq >= 3 ? "var(--lq3)" : lq === 2 ? "var(--lq2)" : "var(--lq1)";
     const numOrNull = (value) => value == null || value === "" || !Number.isFinite(Number(value)) ? null : Number(value);
     const fmt = (value, suffix = "") => value == null ? "-" : `${value}${suffix}`;
     const esc = (value) => String(value ?? "-").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+    const fmtTime = (seconds) => seconds ? new Date(seconds * 1000).toLocaleString() : "Never";
     const reportSeverity = (report) => {
       if (!report) return 0;
       const linkMargin = report.linkMargin;
@@ -217,6 +344,238 @@
       return routeCost != null && routeCost <= 2 && (report.linkMargin == null || report.linkMargin >= 10);
     };
     const routerSignalLabel = (router) => router.signalStatus;
+    const rloc16ApiId = (rloc16) => {
+      const text = String(rloc16 || "").trim();
+      if (!text) return "";
+      return text.toLowerCase().startsWith("0x") ? text : `0x${text}`;
+    };
+    const deriveChildRloc16 = (parentRloc16, parentRouterId, childId) => {
+      const childValue = Number.parseInt(String(childId ?? ""), 10);
+      if (!Number.isInteger(childValue) || childValue < 0 || childValue > 0x3ff) return "";
+      const parentRlocText = String(parentRloc16 || "").trim().replace(/^0x/i, "");
+      const parentRlocValue = Number.parseInt(parentRlocText, 16);
+      if (Number.isInteger(parentRlocValue)) return ((parentRlocValue & 0xfc00) | childValue).toString(16).padStart(4, "0");
+      const routerValue = Number.parseInt(String(parentRouterId ?? ""), 10);
+      if (!Number.isInteger(routerValue) || routerValue < 0 || routerValue > 0x3f) return "";
+      return ((routerValue << 10) | childValue).toString(16).padStart(4, "0");
+    };
+    const inlineValue = (value) => {
+      if (value == null) return "-";
+      if (typeof value === "boolean") return value ? "Yes" : "No";
+      if (typeof value !== "object") return String(value);
+      if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? "" : "s"}`;
+      return Object.entries(value).map(([key, item]) => `${humanize(key)}: ${inlineValue(item)}`).join(", ") || "-";
+    };
+    const humanize = (key) => String(key || "")
+      .replace(/_/g, " ")
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/\b\w/g, (char) => char.toUpperCase())
+      .replace(/\bIp\b/g, "IP")
+      .replace(/\bIpv6\b/g, "IPv6")
+      .replace(/\bRloc16\b/g, "RLOC16")
+      .replace(/\bRssi\b/g, "RSSI")
+      .replace(/\bMac\b/g, "MAC");
+    const kvList = (items) => `<dl class="kv">${items.map(([key, value]) => `<dt>${esc(key)}</dt><dd>${esc(inlineValue(value))}</dd>`).join("")}</dl>`;
+    const flattenDevice = (value, prefix = "") => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+      return Object.entries(value).flatMap(([key, item]) => {
+        const fullKey = prefix ? `${prefix}.${key}` : key;
+        if (item && typeof item === "object" && !Array.isArray(item)) return flattenDevice(item, fullKey);
+        return [[fullKey, item]];
+      });
+    };
+    const fieldName = (path) => humanize(String(path).split(".").at(-1));
+    const fieldBucket = (path) => {
+      const key = String(path).toLowerCase();
+      if (/name|model|vendor|manufacturer|version|type|role|state|status|id|eui|mac|ext|rloc|address/.test(key)) return "Identity";
+      if (/ip|route|prefix|network|mesh|parent|child|neighbor|leader|router/.test(key)) return "Network";
+      if (/rssi|lq|quality|margin|error|rate|timeout|age|latency|ping|reachable|connection|uptime/.test(key)) return "Diagnostics";
+      if (/battery|power|voltage|temperature|humidity|sensor|button|occupancy|light/.test(key)) return "Telemetry";
+      return "Other";
+    };
+    const renderArrayTable = (key, rows) => {
+      const keyName = String(key).split(".").at(-1) || key;
+      const title = humanize(keyName);
+      if (!rows.length || keyName.toLowerCase() === "missing_tlvs") {
+        return "";
+      }
+      if (!rows.every((row) => row && typeof row === "object" && !Array.isArray(row))) {
+        const column = /ip|address|destination/i.test(keyName) ? "Address" : "Value";
+        return `<section class="detail-section">
+          <div class="label">${esc(title)}</div>
+          <table class="compact-table">
+            <thead><tr><th>${esc(column)}</th></tr></thead>
+            <tbody>${rows.map((row) => `<tr><td>${esc(inlineValue(row))}</td></tr>`).join("")}</tbody>
+          </table>
+        </section>`;
+      }
+      const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row)))).slice(0, 6);
+      return `<section class="detail-section">
+        <div class="label">${esc(title)}</div>
+        <table class="compact-table">
+          <thead><tr>${columns.map((column) => `<th>${esc(humanize(column))}</th>`).join("")}</tr></thead>
+          <tbody>${rows.map((row) => `<tr>${columns.map((column) => `<td>${esc(inlineValue(row[column]))}</td>`).join("")}</tr>`).join("")}</tbody>
+        </table>
+      </section>`;
+    };
+    const renderDeviceDetails = (body) => {
+      if (!body || typeof body !== "object") return `<div class="muted">No structured details returned.</div>`;
+      if (body.query || body.diagnostics) {
+        const query = body.query || {};
+        const diagnostics = body.diagnostics || {};
+        const mode = diagnostics.mode || {};
+        const leader = diagnostics.leader_data || {};
+        const vendor = diagnostics.vendor || {};
+        const ip6Addresses = Array.isArray(diagnostics.ip6_addresses) ? diagnostics.ip6_addresses : [];
+        const sections = [
+          `<section class="detail-section">
+            <div class="label">Query</div>
+            ${kvList([
+              ["Status", body.status],
+              ["Profile", query.profile],
+              ["ID", query.id],
+              ["RLOC16", query.rloc16 || diagnostics.addr16],
+              ["Destination", query.destination],
+              ["Timeout", query.timeout_ms == null ? null : `${query.timeout_ms}ms`],
+              ["Queried", body.queried_ms == null ? null : `${body.queried_ms}ms`]
+            ])}
+          </section>`,
+          `<section class="detail-section">
+            <div class="label">Diagnostics</div>
+            ${kvList([
+              ["Ext Address", diagnostics.ext_address],
+              ["Addr16", diagnostics.addr16],
+              ["Thread Version", diagnostics.thread_version],
+              ["Full Thread Device", mode.full_thread_device],
+              ["Full Network Data", mode.full_network_data],
+              ["Rx On When Idle", mode.rx_on_when_idle]
+            ])}
+          </section>`,
+        ];
+        if (Object.keys(leader).length) {
+          sections.push(`<section class="detail-section">
+            <div class="label">Leader Data</div>
+            ${kvList([
+              ["Partition ID", leader.partition_id],
+              ["Weighting", leader.weighting],
+              ["Data Version", leader.data_version],
+              ["Stable Data Version", leader.stable_data_version],
+              ["Leader Router ID", leader.leader_router_id]
+            ])}
+          </section>`);
+        }
+        if (ip6Addresses.length) {
+          sections.push(renderArrayTable("ip6_addresses", ip6Addresses));
+        }
+        if (Object.keys(vendor).length) {
+          sections.push(`<section class="detail-section">
+            <div class="label">Vendor</div>
+            ${kvList([
+              ["Name", vendor.name],
+              ["Model", vendor.model],
+              ["Software Version", vendor.software_version],
+              ["App URL", vendor.app_url]
+            ])}
+          </section>`);
+        }
+        if (diagnostics.thread_stack_version) {
+          sections.push(`<section class="detail-section">
+            <div class="label">Thread Stack</div>
+            ${kvList([["Version", diagnostics.thread_stack_version]])}
+          </section>`);
+        }
+        return sections.join("");
+      }
+      const grouped = new Map();
+      for (const [path, value] of flattenDevice(body)) {
+        if (Array.isArray(value)) continue;
+        const bucket = fieldBucket(path);
+        if (!grouped.has(bucket)) grouped.set(bucket, []);
+        grouped.get(bucket).push([fieldName(path), value]);
+      }
+      const sections = ["Identity", "Network", "Diagnostics", "Telemetry", "Other"]
+        .filter((name) => grouped.has(name))
+        .map((name) => `<section class="detail-section"><div class="label">${esc(name)}</div>${kvList(grouped.get(name))}</section>`);
+      const arraySections = flattenDevice(body)
+        .filter(([, value]) => Array.isArray(value))
+        .map(([key, value]) => renderArrayTable(key, value));
+      return [...sections, ...arraySections].join("") || `<div class="muted">No displayable device details.</div>`;
+    };
+    const renderPingResult = (body) => {
+      const ping = body && body.ping && typeof body.ping === "object" ? body.ping : {};
+      const query = ping.query || {};
+      const stats = ping.statistics || {};
+      const replies = Array.isArray(ping.replies) ? ping.replies : [];
+      const received = Number(stats.received ?? 0);
+      const sent = Number(stats.sent ?? query.count ?? 0);
+      const status = ping.status === "ok" && received > 0 ? "Reachable" : (sent > 0 ? "No reply" : humanize(ping.status || "Ping Complete"));
+      const replyRows = replies.map((reply) => `
+        <tr>
+          <td>${esc(reply.sequence)}</td>
+          <td>${esc(reply.from)}</td>
+          <td class="num">${esc(fmt(reply.size))}</td>
+          <td class="num">${esc(fmt(reply.rtt_ms, "ms"))}</td>
+          <td class="num">${esc(fmt(reply.hop_limit))}</td>
+        </tr>
+      `).join("");
+      return `
+        <div class="label">${esc(status)}</div>
+        ${kvList([
+          ["Target", query.target || body.target],
+          ["RLOC16", query.rloc16],
+          ["Destination", query.destination],
+          ["Count", query.count],
+          ["Size", query.size == null ? null : `${query.size} bytes`],
+          ["Interval", query.interval_ms == null ? null : `${query.interval_ms}ms`],
+          ["Timeout", query.timeout_ms == null ? null : `${query.timeout_ms}ms`],
+          ["Queried", ping.queried_ms == null ? null : `${ping.queried_ms}ms`]
+        ])}
+        <div class="detail-section">
+          <div class="label">Statistics</div>
+          ${kvList([
+            ["Sent", stats.sent],
+            ["Received", stats.received],
+            ["Lost", stats.lost],
+            ["Loss", stats.loss_percent == null ? null : `${Number(stats.loss_percent).toFixed(1)}%`],
+            ["Min RTT", stats.min_rtt_ms == null ? null : `${stats.min_rtt_ms}ms`],
+            ["Avg RTT", stats.avg_rtt_ms == null ? null : `${stats.avg_rtt_ms}ms`],
+            ["Max RTT", stats.max_rtt_ms == null ? null : `${stats.max_rtt_ms}ms`],
+            ["Multicast", stats.multicast]
+          ])}
+        </div>
+        <div class="detail-section">
+          <div class="label">Replies</div>
+          ${replyRows ? `<table class="compact-table"><thead><tr><th>Seq</th><th>From</th><th class="num">Size</th><th class="num">RTT</th><th class="num">Hop Limit</th></tr></thead><tbody>${replyRows}</tbody></table>` : `<div class="muted">No replies.</div>`}
+        </div>
+      `;
+    };
+    const setupPingButton = (apiId) => {
+      const button = detail.querySelector("[data-ping-button]");
+      if (!button) return;
+      const result = detail.querySelector("[data-ping-result]");
+      button.addEventListener("click", async () => {
+        if (!apiId || button.disabled) {
+          result.textContent = "No device target available.";
+          return;
+        }
+        button.disabled = true;
+        result.textContent = "Pinging device...";
+        try {
+          const response = await fetch(`/device/${encodeURIComponent(apiId)}/ping`, { cache: "no-store" });
+          const body = await response.json();
+          if (!response.ok) {
+            result.textContent = body.error || `Ping failed (${response.status})`;
+            return;
+          }
+          result.innerHTML = renderPingResult(body);
+        } catch (error) {
+          result.textContent = error.message || String(error);
+        } finally {
+          button.disabled = false;
+        }
+      });
+    };
+    let detailToken = 0;
     let layoutMode = "location";
     let latestBody = null;
 
@@ -388,7 +747,7 @@
       const childNodes = routers.flatMap((router) => router.children.map((child, index) => ({
         id: child.ext_address || `${router.id}-${child.rloc16}`,
         childId: child.child_id,
-        rloc16: child.rloc16,
+        rloc16: child.rloc16 || deriveChildRloc16(router.rloc16, router.id, child.child_id),
         extAddress: child.ext_address,
         name: deviceName(child.ext_address || child.rloc16, `Child ${child.child_id}`),
         info: deviceInfo(child.ext_address || child.rloc16),
@@ -595,13 +954,106 @@
       childNode.append("text").attr("class", "main").attr("text-anchor", "middle").attr("dy", "0.35em").text((child) => child.childId);
       childNode.append("text").attr("class", "name-label").attr("text-anchor", "middle").attr("dy", "2.85em").text((child) => compactName(child.name));
 
+      function showSidebar(html) {
+        detailToken += 1;
+        detail.classList.add("open");
+        detail.innerHTML = html;
+        return detailToken;
+      }
+      function hideSidebar() {
+        detailToken += 1;
+        detail.classList.remove("open");
+        detail.innerHTML = "";
+      }
+      function showSelectionDetail(html) {
+        selectionDetail.classList.add("open");
+        selectionDetail.innerHTML = html;
+      }
+      function hideSelectionDetail() {
+        selectionDetail.classList.remove("open");
+        selectionDetail.innerHTML = "";
+      }
+      function renderDeviceResponse(body) {
+        const device = body && body.device;
+        const updatedAt = body && body.updated_at;
+        const target = detail.querySelector("[data-device-detail]");
+        const updated = detail.querySelector("[data-device-updated]");
+        if (updated) updated.textContent = `Updated ${fmtTime(updatedAt)}`;
+        if (!target) return;
+        if (!device) {
+          target.innerHTML = `<div class="muted">No cached device data.</div>`;
+          return;
+        }
+        target.innerHTML = renderDeviceDetails(device);
+      }
+      async function loadDeviceDetail(node, token) {
+        const apiId = rloc16ApiId(node.rloc16);
+        const target = detail.querySelector("[data-device-detail]");
+        if (!target) return;
+        if (!apiId) {
+          target.innerHTML = `<div class="muted">No rloc16 available for this device.</div>`;
+          return;
+        }
+        target.innerHTML = `<div class="muted">Loading cached device data...</div>`;
+        try {
+          const response = await fetch(`/device/${encodeURIComponent(apiId)}`, { cache: "no-store" });
+          const body = await response.json();
+          if (token !== detailToken) return;
+          if (!response.ok) {
+            if (response.status === 404) {
+              await refreshDeviceDetail(apiId, token);
+              return;
+            }
+            target.innerHTML = `<div class="muted">${esc(body.error || "No cached device data.")}</div>`;
+            return;
+          }
+          renderDeviceResponse(body);
+        } catch (error) {
+          if (token !== detailToken) return;
+          target.innerHTML = `<div class="muted">${esc(error.message || error)}</div>`;
+        }
+      }
+      async function refreshDeviceDetail(apiId, token) {
+        const button = detail.querySelector("[data-refresh-device]");
+        const target = detail.querySelector("[data-device-detail]");
+        if (!apiId || !button || !target) return;
+        button.disabled = true;
+        target.innerHTML = `<div class="muted">Refreshing device data...</div>`;
+        try {
+          const response = await fetch(`/device/${encodeURIComponent(apiId)}/refresh`, { cache: "no-store" });
+          const body = await response.json();
+          if (token !== detailToken) return;
+          if (!response.ok) {
+            target.innerHTML = `<div class="muted">${esc(body.error || `Refresh failed (${response.status})`)}</div>`;
+            return;
+          }
+          renderDeviceResponse(body);
+        } catch (error) {
+          if (token !== detailToken) return;
+          target.innerHTML = `<div class="muted">${esc(error.message || error)}</div>`;
+        } finally {
+          if (token === detailToken) button.disabled = false;
+        }
+      }
+      function setupRefreshButton(apiId, token) {
+        const button = detail.querySelector("[data-refresh-device]");
+        if (!button) return;
+        button.addEventListener("click", () => refreshDeviceDetail(apiId, token));
+      }
+      function setPingRloc(apiId) {
+        const pingTarget = detail.querySelector("[data-ping-target]");
+        const pingButton = detail.querySelector("[data-ping-button]");
+        if (pingTarget) pingTarget.textContent = apiId || "No device target";
+        if (pingButton) pingButton.disabled = !apiId;
+      }
       function reset() {
         routerNode.classed("dim", false);
         childNode.classed("dim", false);
         mesh.classed("dim", false);
         childLinks.classed("dim", false);
         clearDirections();
-        detail.textContent = "Select a router, child, or link.";
+        hideSidebar();
+        hideSelectionDetail();
       }
       function selectRouter(router) {
         const related = new Set([router.id]);
@@ -640,7 +1092,35 @@
           </tr>
         `).join("");
         const table = rows ? `<table class="signal-table"><thead><tr><th>Status</th><th>To</th><th>Name</th><th class="num">LQ</th><th class="num">Margin</th><th class="num">Avg RSSI</th><th class="num">Last RSSI</th><th class="num">FER</th><th class="num">MER</th></tr></thead><tbody>${rows}</tbody></table>` : "";
-        detail.innerHTML = `<b>${esc(router.name)}</b> Router ${esc(router.id)} · ${esc(routerRole(router))} · signal ${esc(routerSignalLabel(router))} · reliable neighbors ${esc(router.reliableNeighborCount)} · leader route cost ${esc(fmt(router.leaderRouteCost))} · weak edge ratio ${esc(Math.round(router.weakEdgeRatio * 100))}% · ext ${esc(router.extAddress || "-")} · rloc16 ${esc(router.rloc16)} · children ${router.children.length}/${router.childCount} · child table ${esc(router.childTableStatus)} · neighbor table ${esc(router.routerNeighborTableStatus)} · LQ1 ${router.counts.lq1 ?? 0}, LQ2 ${router.counts.lq2 ?? 0}, LQ3 ${router.counts.lq3 ?? 0}, LQ missing ${router.counts.missing ?? 0}${extras ? " · " + esc(extras) : ""}${table}`;
+        showSelectionDetail(`<b>${esc(router.name)}</b> Router ${esc(router.id)} · ${esc(routerRole(router))} · signal ${esc(routerSignalLabel(router))} · reliable neighbors ${esc(router.reliableNeighborCount)} · leader route cost ${esc(fmt(router.leaderRouteCost))} · weak edge ratio ${esc(Math.round(router.weakEdgeRatio * 100))}% · ext ${esc(router.extAddress || "-")} · rloc16 ${esc(router.rloc16)} · children ${router.children.length}/${router.childCount} · child table ${esc(router.childTableStatus)} · neighbor table ${esc(router.routerNeighborTableStatus)} · LQ1 ${router.counts.lq1 ?? 0}, LQ2 ${router.counts.lq2 ?? 0}, LQ3 ${router.counts.lq3 ?? 0}, LQ missing ${router.counts.missing ?? 0}${extras ? " · " + esc(extras) : ""}${table}`);
+        const token = showSidebar(`
+          <section class="detail-section">
+            <div class="detail-head">
+              <div>
+                <h2>${esc(router.name)}</h2>
+                <div class="muted">Device ${esc(rloc16ApiId(router.rloc16))}</div>
+                <div class="muted" data-device-updated>Updated Never</div>
+              </div>
+              <button type="button" data-refresh-device>Refresh</button>
+            </div>
+          </section>
+          <section class="detail-section">
+            <div class="label">Probe Device API</div>
+            <div data-device-detail></div>
+          </section>
+          <section class="detail-section">
+            <div class="label">Ping Device</div>
+            <div class="ping-action">
+              <div class="ping-target muted" data-ping-target>${esc(rloc16ApiId(router.rloc16) || "No device target")}</div>
+              <button type="button" data-ping-button disabled>Ping</button>
+            </div>
+            <div class="ping-result muted" data-ping-result></div>
+          </section>
+        `);
+        setupPingButton(rloc16ApiId(router.rloc16));
+        setupRefreshButton(rloc16ApiId(router.rloc16), token);
+        setPingRloc(rloc16ApiId(router.rloc16));
+        loadDeviceDetail(router, token);
       }
       function selectChild(child) {
         routerNode.classed("dim", (router) => router.id !== child.parent.id);
@@ -649,7 +1129,35 @@
         childLinks.classed("dim", (item) => item.id !== child.id);
         clearDirections();
         const extras = child.info ? [child.info.location, child.info.notes].filter(Boolean).join(" · ") : "";
-        detail.innerHTML = `<b>${esc(child.name)}</b> Child ${esc(child.childId)} · ext ${esc(child.extAddress || "-")} · rloc16 ${esc(child.rloc16)} · parent ${esc(child.parent.name)} · status ${esc(severityLabel(reportSeverity(child)))} · LQ ${esc(fmt(child.linkQuality))} · margin ${esc(fmt(child.linkMargin, "dB"))} · RSSI ${esc(fmt(child.averageRssi))}/${esc(fmt(child.lastRssi, "dBm"))} · queued ${esc(fmt(child.queuedMessages))} · timeout ${esc(child.timeout)}${extras ? " · " + esc(extras) : ""}`;
+        showSelectionDetail(`<b>${esc(child.name)}</b> Child ${esc(child.childId)} · ext ${esc(child.extAddress || "-")} · rloc16 ${esc(child.rloc16)} · parent ${esc(child.parent.name)} · status ${esc(severityLabel(reportSeverity(child)))} · LQ ${esc(fmt(child.linkQuality))} · margin ${esc(fmt(child.linkMargin, "dB"))} · RSSI ${esc(fmt(child.averageRssi))}/${esc(fmt(child.lastRssi, "dBm"))} · queued ${esc(fmt(child.queuedMessages))} · timeout ${esc(child.timeout)}${extras ? " · " + esc(extras) : ""}`);
+        const token = showSidebar(`
+          <section class="detail-section">
+            <div class="detail-head">
+              <div>
+                <h2>${esc(child.name)}</h2>
+                <div class="muted">Device ${esc(rloc16ApiId(child.rloc16))}</div>
+                <div class="muted" data-device-updated>Updated Never</div>
+              </div>
+              <button type="button" data-refresh-device>Refresh</button>
+            </div>
+          </section>
+          <section class="detail-section">
+            <div class="label">Probe Device API</div>
+            <div data-device-detail></div>
+          </section>
+          <section class="detail-section">
+            <div class="label">Ping Device</div>
+            <div class="ping-action">
+              <div class="ping-target muted" data-ping-target>${esc(rloc16ApiId(child.rloc16) || "No device target")}</div>
+              <button type="button" data-ping-button disabled>Ping</button>
+            </div>
+            <div class="ping-result muted" data-ping-result></div>
+          </section>
+        `);
+        setupPingButton(rloc16ApiId(child.rloc16));
+        setupRefreshButton(rloc16ApiId(child.rloc16), token);
+        setPingRloc(rloc16ApiId(child.rloc16));
+        loadDeviceDetail(child, token);
       }
       function selectMesh(edge) {
         routerNode.classed("dim", (router) => router.id !== edge.source.id && router.id !== edge.target.id);
@@ -674,7 +1182,21 @@
               <td class="num">${esc(fmt(report.messageErrorRate))}</td>
             </tr>
           `).join("");
-        detail.innerHTML = `<b>Router ${esc(edge.source.id)} ↔ ${esc(edge.target.id)}</b> two-way LQ ${esc(fmt(edge.twoWayLq))}, route cost ${esc(fmt(edge.routeCost))}, best margin ${esc(fmt(edge.bestMargin, "dB"))}, best LQ ${esc(fmt(edge.bestLq))}<table class="signal-table"><thead><tr><th>Direction</th><th>From</th><th>To</th><th>Status</th><th class="num">LQ</th><th class="num">Margin</th><th class="num">Avg RSSI</th><th class="num">Last RSSI</th><th class="num">FER</th><th class="num">MER</th></tr></thead><tbody>${rows}</tbody></table>`;
+        hideSidebar();
+        showSelectionDetail(`
+          <section class="detail-section">
+            <h2>Router ${esc(edge.source.id)} ↔ ${esc(edge.target.id)}</h2>
+            ${kvList([
+              ["Two-way LQ", fmt(edge.twoWayLq)],
+              ["Route Cost", fmt(edge.routeCost)],
+              ["Best Margin", fmt(edge.bestMargin, "dB")],
+              ["Best LQ", fmt(edge.bestLq)]
+            ])}
+          </section>
+          <section class="detail-section">
+            <table class="signal-table"><thead><tr><th>Direction</th><th>From</th><th>To</th><th>Status</th><th class="num">LQ</th><th class="num">Margin</th><th class="num">Avg RSSI</th><th class="num">Last RSSI</th><th class="num">FER</th><th class="num">MER</th></tr></thead><tbody>${rows}</tbody></table>
+          </section>
+        `);
       }
       svg.on("click", reset);
     }
